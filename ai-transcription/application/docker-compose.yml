@@ -1,0 +1,84 @@
+services:
+  redis:
+    image: redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  app:
+    image: whisper-transcriber-app:v7
+    command: python bot_v7.py
+    volumes:
+      - /home/user1/ai-transcriber-app/config.yaml:/app/config.yaml
+      - /home/user1/ai-transcriber-app/audio_input:/app/audio_input
+      - /home/user1/ai-transcriber-app/processing:/app/processing
+      - /home/user1/ai-transcriber-app/transcripts:/app/transcripts
+      - /home/user1/ai-transcriber-app/logs:/app/logs
+      - /home/user1/ai-transcriber-app/downloads:/app/downloads
+      - /home/user1/ai-transcriber-app/error:/app/error
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    image: whisper-transcriber-app:v7
+    command: python dashboard.py
+    ports:
+      - "9181:9181"
+    volumes:
+      - /home/user1/ai-transcriber-app/config.yaml:/app/config.yaml
+      - /home/user1/ai-transcriber-app/templates:/app/templates
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
+      - RQ_DASHBOARD_QUEUES=transcriptions
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: whisper-transcriber-app:v7
+    command: rq worker --name worker-1 --url redis://redis:6379/0 --with-scheduler transcriptions
+    volumes:
+      - /home/user1/ai-transcriber-app/config.yaml:/app/config.yaml
+      - /home/user1/ai-transcriber-app/audio_input:/app/audio_input
+      - /home/user1/ai-transcriber-app/processing:/app/processing
+      - /home/user1/ai-transcriber-app/transcripts:/app/transcripts
+      - /home/user1/ai-transcriber-app/logs:/app/logs
+      - /home/user1/ai-transcriber-app/downloads:/app/downloads
+      - /home/user1/ai-transcriber-app/error:/app/error
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
+      - JOB_TIMEOUT=1800  # 30 minutes timeout for large transcription jobs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G  # Limit memory usage to 6GB for an 8GB system
+
+volumes:
+  redis_data:
+    driver: local
