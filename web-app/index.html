@@ -5,62 +5,169 @@
   <title>Transcription App - File Upload</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
-    .status { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+    .log-container { 
+      margin-top: 20px; 
+      padding: 10px; 
+      border: 1px solid #ddd; 
+      height: 300px; 
+      overflow-y: auto; 
+      background-color: #f9f9f9;
+      font-family: monospace;
+    }
+    .log-entry {
+      padding: 2px 5px;
+      margin: 2px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 14px;
+    }
+    .history-entry {
+      color: #666;
+      font-style: italic;
+    }
+    .upload-form {
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: #f0f0f0;
+      border-radius: 5px;
+    }
+    button {
+      padding: 8px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    h2 {
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
   </style>
 </head>
 <body>
-  <h1>Upload Audio for Transcription</h1>
+  <h1>Audio Transcription Service</h1>
+  
   <!-- File Upload Form -->
-  <form id="uploadForm" enctype="multipart/form-data">
-    <input type="file" id="fileInput" name="audioFile" accept="audio/*" required>
-    <button type="submit">Upload File</button>
-  </form>
+  <div class="upload-form">
+    <h2>Upload Audio File</h2>
+    <form id="uploadForm" enctype="multipart/form-data">
+      <input type="file" id="fileInput" name="audioFile" accept="audio/*" required>
+      <button type="submit">Upload for Transcription</button>
+    </form>
+  </div>
 
-  <!-- Status Display Section -->
-  <div class="status" id="status">Status: Waiting for upload...</div>
+  <!-- Log Section -->
+  <h2>Transcription Log</h2>
+  <div class="log-container" id="logContainer"></div>
 
   <!-- JavaScript Section -->
   <script>
+    // Add a log entry with timestamp
+    function addLogEntry(message, timestamp = null, isHistory = false) {
+      // Use provided timestamp or current time
+      const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+      
+      const logEntry = document.createElement('div');
+      logEntry.className = isHistory ? 'log-entry history-entry' : 'log-entry';
+      logEntry.textContent = `[${time}] ${message}`;
+      
+      const logContainer = document.getElementById('logContainer');
+      logContainer.appendChild(logEntry); // Add to bottom like a traditional log
+      
+      // Auto-scroll to bottom to show the latest entry
+      logContainer.scrollTop = logContainer.scrollHeight;
+      
+      return logEntry;
+    }
+
+    // Add initial log entry
+    addLogEntry('System ready. Waiting for file upload...');
+
     // Function to initialize WebSocket connection for real-time updates
     function initWebSocket() {
+      addLogEntry('Establishing WebSocket connection...');
+      
       // Change the URL to your backend WebSocket endpoint
       const ws = new WebSocket('ws://localhost:8000/ws');
       
       ws.onopen = () => {
-        console.log('WebSocket connection established');
+        addLogEntry('WebSocket connection established');
       };
 
       ws.onmessage = (event) => {
-        console.log('Received update:', event.data);
-        // Update the status div with the message from the server
-        document.getElementById('status').textContent = 'Status: ' + event.data;
+        console.log('Received message:', event.data);
+        
+        try {
+          // Parse the message data
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'history') {
+            // Handle history messages
+            addLogEntry('Loading message history...');
+            
+            // Display history messages in chronological order (oldest first)
+            const messages = data.messages.reverse();
+            for (const msg of messages) {
+              addLogEntry(msg.message, msg.timestamp, true);
+            }
+            
+            addLogEntry('History loaded. Waiting for new updates...');
+          } 
+          else if (data.type === 'update') {
+            // Handle regular update message
+            addLogEntry(data.message, data.timestamp);
+          }
+          else {
+            // Handle any other message type
+            addLogEntry(`Received: ${data.message || event.data}`);
+          }
+        } catch (e) {
+          // Handle plain text messages (fallback)
+          addLogEntry(`Received: ${event.data}`);
+          console.error('Error parsing message:', e);
+        }
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        addLogEntry('ERROR: WebSocket connection error');
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket connection closed');
+      ws.onclose = (event) => {
+        addLogEntry(`WebSocket connection closed: ${event.code}`);
+        
+        // Try to reconnect after a short delay unless the closure was intentional
+        if (event.code !== 1000) {
+          addLogEntry('Attempting to reconnect in 5 seconds...');
+          setTimeout(() => {
+            addLogEntry('Reconnecting WebSocket...');
+            socket = initWebSocket();
+          }, 5000);
+        }
       };
 
       return ws;
     }
 
     // Initialize WebSocket connection on page load
-    const socket = initWebSocket();
+    let socket = initWebSocket();
 
     // Handle file upload form submission
     document.getElementById('uploadForm').addEventListener('submit', function(event) {
-      event.preventDefault(); // Prevent the default form submission behavior
+      event.preventDefault();
 
       const fileInput = document.getElementById('fileInput');
       if (fileInput.files.length === 0) {
-        alert('Please select a file.');
+        addLogEntry('ERROR: Please select a file to upload');
         return;
       }
-
+      
       const file = fileInput.files[0];
+      addLogEntry(`Uploading file: ${file.name} (${Math.round(file.size / 1024)} KB)`);
+      
       const formData = new FormData();
       formData.append('audioFile', file);
 
@@ -69,14 +176,20 @@
         method: 'POST',
         body: formData
       })
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Server responded with status: ${response.status}`);
+        }
+        return response.json();
+      })
       .then(data => {
         console.log('Upload successful:', data);
-        document.getElementById('status').textContent = 'Status: File uploaded. Job ID: ' + data.jobId;
+        addLogEntry(`File uploaded successfully. Job ID: ${data.jobId}`);
+        addLogEntry('Waiting for transcription to begin...');
       })
       .catch(error => {
         console.error('Upload error:', error);
-        document.getElementById('status').textContent = 'Status: Upload failed.';
+        addLogEntry(`ERROR: Upload failed - ${error.message}`);
       });
     });
   </script>

@@ -59,4 +59,5 @@ htmlcov/
 config.yaml
 api/
 *.rdb
+uploads/
 
