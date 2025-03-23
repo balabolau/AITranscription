@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Transcription App - File Upload</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .status { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h1>Upload Audio for Transcription</h1>
+  <!-- File Upload Form -->
+  <form id="uploadForm" enctype="multipart/form-data">
+    <input type="file" id="fileInput" name="audioFile" accept="audio/*" required>
+    <button type="submit">Upload File</button>
+  </form>
+
+  <!-- Status Display Section -->
+  <div class="status" id="status">Status: Waiting for upload...</div>
+
+  <!-- JavaScript Section -->
+  <script>
+    // Function to initialize WebSocket connection for real-time updates
+    function initWebSocket() {
+      // Change the URL to your backend WebSocket endpoint
+      const ws = new WebSocket('ws://localhost:8000/ws');
+      
+      ws.onopen = () => {
+        console.log('WebSocket connection established');
+      };
+
+      ws.onmessage = (event) => {
+        console.log('Received update:', event.data);
+        // Update the status div with the message from the server
+        document.getElementById('status').textContent = 'Status: ' + event.data;
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket connection closed');
+      };
+
+      return ws;
+    }
+
+    // Initialize WebSocket connection on page load
+    const socket = initWebSocket();
+
+    // Handle file upload form submission
+    document.getElementById('uploadForm').addEventListener('submit', function(event) {
+      event.preventDefault(); // Prevent the default form submission behavior
+
+      const fileInput = document.getElementById('fileInput');
+      if (fileInput.files.length === 0) {
+        alert('Please select a file.');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('audioFile', file);
+
+      // Send the file to your API backend using fetch
+      fetch('http://localhost:8000/upload', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        console.log('Upload successful:', data);
+        document.getElementById('status').textContent = 'Status: File uploaded. Job ID: ' + data.jobId;
+      })
+      .catch(error => {
+        console.error('Upload error:', error);
+        document.getElementById('status').textContent = 'Status: Upload failed.';
+      });
+    });
+  </script>
+</body>
+</html>
