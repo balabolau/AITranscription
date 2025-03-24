@@ -150,7 +150,8 @@ async def start_pubsub_listener():
                 await asyncio.sleep(1.0)
     asyncio.create_task(pubsub_listener())
 
-# Dummy processing function that simulates transcription and publishes updates.
+# Dummy processing function that simulates transcription, saves output, publishes updates,
+# and then clears the original uploaded file.
 def process_file(file_path, job_id):
     import time
     worker_logger = logging.getLogger(f"worker.job.{job_id}")
@@ -176,6 +177,13 @@ def process_file(file_path, job_id):
         worker_logger.error(f"Error saving transcript for job {job_id}: {e}")
         redis_sync.publish("job_updates", f"Job {job_id} failed: {str(e)}")
         raise
+    # Clear the original uploaded file
+    try:
+        os.remove(file_path)
+        worker_logger.info(f"Removed original upload file: {file_path}")
+        redis_sync.publish("job_updates", f"Original file removed: {file_path}")
+    except Exception as e:
+        worker_logger.error(f"Error removing original file {file_path}: {e}")
     return transcript
 
 # API endpoint for file uploads and job creation
@@ -203,7 +211,6 @@ async def list_transcriptions():
     transcripts = []
     for filename in os.listdir(OUTPUT_DIR):
         if filename.endswith(".txt"):
-            # Assuming the filename format is: <job_id>_<original_filename>.txt
             parts = filename.split("_", 1)
             if len(parts) == 2:
                 job_id = parts[0]
