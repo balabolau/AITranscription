@@ -60,4 +60,5 @@ config.yaml
 api/
 *.rdb
 uploads/
+outputs/
 
