@@ -214,7 +214,7 @@ async def list_transcriptions():
             transcripts.append({
                 "job_id": job_id,
                 "original_filename": original_filename,
-                "download_url": f"/download/{job_id}"
+                "download_url": f"http://localhost:8000/download/{job_id}"
             })
     return transcripts
 
