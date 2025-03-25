@@ -10,17 +10,7 @@ import json
 from datetime import datetime
 from redis import Redis
 from rq import Queue
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("api.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+from jobs import enqueue_transcription  # Import the enqueue function from jobs.py
 
 app = FastAPI()
 
@@ -33,9 +23,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("api.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 # Set up a synchronous Redis connection for the job queue
 redis_conn = Redis(host="localhost", port=6379, db=0)
-job_queue = Queue("transcriptions", connection=redis_conn)
+# job_queue = Queue("transcriptions", connection=redis_conn)
 
 # Directories for uploads and outputs
 UPLOAD_DIR = "./uploads"
@@ -81,7 +82,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     connected_clients.add(websocket)
     logger.debug(f"WebSocket client {client_id} connected. Total: {len(connected_clients)}")
-    # Send recent history
+    # Send recent history to the client
     try:
         recent_messages = get_recent_messages()
         if recent_messages:
@@ -136,7 +137,7 @@ async def start_pubsub_listener():
         logger.info("Pub/Sub listener running")
         while True:
             try:
-                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                message = await pubsub.get_message(ignore_subscribe_messages=True)
                 if message:
                     data = message["data"]
                     if isinstance(data, bytes):
@@ -150,43 +151,7 @@ async def start_pubsub_listener():
                 await asyncio.sleep(1.0)
     asyncio.create_task(pubsub_listener())
 
-# Dummy processing function that simulates transcription, saves output, publishes updates,
-# and then clears the original uploaded file.
-def process_file(file_path, job_id):
-    import time
-    worker_logger = logging.getLogger(f"worker.job.{job_id}")
-    worker_logger.info(f"Starting transcription for {os.path.basename(file_path)}")
-    redis_sync = Redis(host="localhost", port=6379, db=0)
-    redis_sync.publish("job_updates", f"Job {job_id} started processing...")
-    for i in range(1, 6):
-        time.sleep(1)
-        progress = i * 20
-        worker_logger.info(f"Job {job_id} progress: {progress}%")
-        redis_sync.publish("job_updates", f"Job {job_id} progress: {progress}% complete")
-    transcript = f"Transcribed text for file {os.path.basename(file_path)}"
-    # Save the transcript in OUTPUT_DIR
-    base, _ = os.path.splitext(os.path.basename(file_path))
-    output_filename = base + ".txt"
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
-    try:
-        with open(output_path, "w") as f:
-            f.write(transcript)
-        worker_logger.info(f"Job {job_id} completed. Transcript saved at {output_path}")
-        redis_sync.publish("job_updates", f"Job {job_id} completed. Transcript saved at {output_path}")
-    except Exception as e:
-        worker_logger.error(f"Error saving transcript for job {job_id}: {e}")
-        redis_sync.publish("job_updates", f"Job {job_id} failed: {str(e)}")
-        raise
-    # Clear the original uploaded file
-    try:
-        os.remove(file_path)
-        worker_logger.info(f"Removed original upload file: {file_path}")
-        redis_sync.publish("job_updates", f"Original file removed: {file_path}")
-    except Exception as e:
-        worker_logger.error(f"Error removing original file {file_path}: {e}")
-    return transcript
-
-# API endpoint for file uploads and job creation
+# The /upload endpoint now uses the enqueue_transcription workflow (from jobs.py).
 @app.post("/upload")
 async def upload_file(audioFile: UploadFile = File(...)):
     file_id = str(uuid.uuid4())
@@ -201,11 +166,12 @@ async def upload_file(audioFile: UploadFile = File(...)):
         worker_logger.error(f"Error saving file {audioFile.filename}: {e}")
         raise HTTPException(status_code=500, detail="Error saving file") from e
 
-    job = job_queue.enqueue(process_file, file_location, file_id)
-    worker_logger.info(f"Enqueued job with ID: {job.get_id()}")
-    return {"jobId": job.get_id(), "message": "File uploaded and job enqueued"}
+    # Use the existing workflow: enqueue transcription via jobs.py
+    job_id = enqueue_transcription(file_location, OUTPUT_DIR, prompt_override=None, language_override=None)
+    worker_logger.info(f"Enqueued transcription job with ID: {job_id}")
+    return {"jobId": job_id, "message": "File uploaded and transcription job enqueued"}
 
-# New endpoint to list all available transcription files
+# Endpoint to list all available transcription files
 @app.get("/transcriptions")
 async def list_transcriptions():
     transcripts = []
@@ -214,7 +180,7 @@ async def list_transcriptions():
             parts = filename.split("_", 1)
             if len(parts) == 2:
                 job_id = parts[0]
-                original_filename = parts[1][:-4]  # Remove .txt extension
+                original_filename = parts[1][:-4]
             else:
                 job_id = "unknown"
                 original_filename = filename
@@ -225,7 +191,7 @@ async def list_transcriptions():
             })
     return transcripts
 
-# Existing download endpoint to serve a transcript file based on job_id
+# Endpoint to serve a transcript file for download based on job_id
 @app.get("/download/{job_id}")
 async def download_transcript(job_id: str):
     for filename in os.listdir(OUTPUT_DIR):
