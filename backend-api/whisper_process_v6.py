@@ -67,14 +67,10 @@ def preprocess_audio(input_path):
         "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
         preprocessed_path
     ]
-    logger.info("Running FFmpeg command: " + " ".join(command))
     try:
         # Set a timeout of 300 seconds (adjust as needed)
         logger.info("Starting FFmpeg process...")
-        result = subprocess.run(command, capture_output=True, text=True, timeout=20)
-        logger.info("FFmpeg process completed.")
-        logger.info("FFmpeg stdout: " + result.stdout)
-        logger.info("FFmpeg stderr: " + result.stderr)
+        result = subprocess.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired as te:
         logger.error(f"FFmpeg command timed out: {te}")
         return None
@@ -248,8 +244,8 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
 def process_audio_file(input_path, output_dir, prompt_override=None, language_override=None, progress_callback=None):
     overall_start = time.time()
     logger.info(f"Processing audio file: {input_path}")
-    preprocessed = input_path
-    # preprocessed = preprocess_audio(input_path)
+    # preprocessed = input_path
+    preprocessed = preprocess_audio(input_path)
     if preprocessed is None:
         logger.error("Preprocessing failed for " + input_path)
         return False
