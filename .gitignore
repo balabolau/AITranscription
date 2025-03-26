@@ -61,4 +61,5 @@ api/
 *.rdb
 uploads/
 outputs/
-
+processing/
+logs/

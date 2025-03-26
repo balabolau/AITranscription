@@ -13,6 +13,7 @@ import yaml
 import gc
 from pydub import AudioSegment
 from multiprocessing import Pool, cpu_count
+import concurrent.futures
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -28,11 +29,11 @@ with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 # Configuration parameters.
-MODEL_SIZE = config.get("model", {}).get("size", "large")
+MODEL_SIZE = config.get("model", {}).get("size", "turbo")
 DEVICE = config.get("model", {}).get("device", "cpu")
 prompt_text = config.get("model", {}).get("prompt", "")
 language = config.get("transcription", {}).get("language", "")
-chunk_duration = config.get("chunking", {}).get("duration", 30)
+chunk_duration = config.get("chunking", {}).get("duration", 20)
 overlap_duration = config.get("chunking", {}).get("overlap", 2)
 temperature = config.get("transcription", {}).get("temperature", 0.26)
 beam_size = config.get("transcription", {}).get("beam_size", 5)
@@ -41,23 +42,20 @@ num_workers = config.get("transcription", {}).get("num_workers", 1)
 
 # Memory management configuration.
 MEMORY_THRESHOLD = config.get("resources", {}).get("memory_threshold", 95)
-CLEANUP_THRESHOLD = config.get("resources", {}).get("cleanup_threshold", 5)
+CLEANUP_THRESHOLD = config.get("resources", {}).get("cleanup_threshold", 3)
 
 # Configure processing log path (already defined by config)
-base_dir = os.path.expanduser(config.get("directories", {}).get("base", "~/Documents/20-29_Work/20_Coding/AITranscription"))
+base_dir = os.path.expanduser(config.get("directories", {}).get("base", "~/Documents/20-29_Work/20_Coding/AITranscription/backend-api"))
 log_dir = os.path.join(base_dir, config.get("directories", {}).get("logs", "logs"))
+PROCESSING_DIR = os.path.join(base_dir, config.get("directories", {}).get("processing", "processing"))
 log_path = os.path.expanduser(os.path.join(log_dir, "processing.log"))
 logger.info(f"Processing log will be saved to: {log_path}")
-
-PROCESSING_DIR = "./processing"
-if not os.path.exists(PROCESSING_DIR):
-    os.makedirs(PROCESSING_DIR)
 
 if torch.backends.mps.is_available():
     torch.backends.mps.allow_fallback = True
 
 def preprocess_audio(input_path):
-    logger.info(f"Preprocessing audio file: {input_path}")
+    # logger.info(f"Preprocessing audio file: {input_path}")
     preprocessed_path = os.path.join(PROCESSING_DIR, Path(input_path).stem + "_preprocessed.wav")
     logger.info(f"Preprocessed audio will be saved to: {preprocessed_path}")
     command = [
@@ -69,7 +67,7 @@ def preprocess_audio(input_path):
     ]
     try:
         # Set a timeout of 300 seconds (adjust as needed)
-        logger.info("Starting FFmpeg process...")
+        # logger.info("Starting FFmpeg process...")
         result = subprocess.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired as te:
         logger.error(f"FFmpeg command timed out: {te}")
@@ -159,7 +157,7 @@ class WhisperTranscriber:
         }
         if effective_language:
             transcribe_kwargs["language"] = effective_language
-        logger.info("Beginning model transcription...")
+        # logger.info("Beginning model transcription...")
         try:
             result = self.model.transcribe(**transcribe_kwargs)
         except Exception as e:
@@ -167,7 +165,7 @@ class WhisperTranscriber:
             return None
         self.processed_since_cleanup += 1
         processing_time = time.time() - start_time
-        logger.info(f"Completed transcription in {processing_time:.2f}s for {input_path}")
+        # logger.info(f"Completed transcription in {processing_time:.2f}s for {input_path}")
         return result["text"]
 
 global_transcriber = WhisperTranscriber()
@@ -183,14 +181,22 @@ def transcribe_chunk(args):
     return (idx, text)
 
 def transcribe_file_in_chunks(input_path, prompt_override=None, language_override=None, chunk_duration=chunk_duration, overlap=overlap_duration, progress_callback=None):
-    logger.info(f"Starting chunk processing for {input_path}")
-    audio = AudioSegment.from_file(input_path)
-    logger.info(f"Loaded audio file: {input_path}")
+    # Run AudioSegment.from_file in a separate thread with a timeout
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(AudioSegment.from_file, input_path)
+        try:
+            audio = future.result(timeout=60)  # wait up to 60 seconds for file to load
+        except concurrent.futures.TimeoutError:
+            logger.error("Timeout reading audio file for chunk processing: " + input_path)
+            return None
+
     audio_length = len(audio)
     step = int((chunk_duration - overlap) * 1000)
     total_chunks = 1 if audio_length <= int(chunk_duration * 1000) else math.ceil((audio_length - (chunk_duration * 1000)) / step) + 1
-    logger.info(f"Expected number of chunks: {total_chunks}")
+
+    logger.info(f"Starting chunk processing for {input_path} - {total_chunks} chunks expected.")
     overall_chunk_start = time.time()
+
     if num_workers <= 1:
         transcriptions = []
         i = 0
@@ -229,6 +235,7 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
             chunk.export(chunk_filename, format="wav")
             chunk_files.append((i, chunk_filename, prompt_override, language_override))
             i += 1
+
         results = [None] * len(chunk_files)
         with Pool(num_workers, initializer=init_worker) as pool:
             for idx, text in pool.imap_unordered(transcribe_chunk, chunk_files):
@@ -244,13 +251,12 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
 def process_audio_file(input_path, output_dir, prompt_override=None, language_override=None, progress_callback=None):
     overall_start = time.time()
     logger.info(f"Processing audio file: {input_path}")
-    # preprocessed = input_path
     preprocessed = preprocess_audio(input_path)
     if preprocessed is None:
         logger.error("Preprocessing failed for " + input_path)
         return False
-    text = global_transcriber.transcribe_file(preprocessed, prompt_override=prompt_override, language_override=language_override)
-    # text = transcribe_file_in_chunks(preprocessed, prompt_override=prompt_override, language_override=language_override, chunk_duration=chunk_duration, overlap=overlap_duration, progress_callback=progress_callback)
+    # text = global_transcriber.transcribe_file(preprocessed, prompt_override=prompt_override, language_override=language_override)
+    text = transcribe_file_in_chunks(preprocessed, prompt_override=prompt_override, language_override=language_override, chunk_duration=chunk_duration, overlap=overlap_duration, progress_callback=progress_callback)
     overall_time = time.time() - overall_start
     logger.info(f"Total processing time for {input_path}: {overall_time:.2f}s")
     mem_usage = psutil.virtual_memory().percent

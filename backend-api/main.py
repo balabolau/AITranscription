@@ -7,6 +7,7 @@ import os
 import asyncio
 import logging
 import json
+import yaml
 from datetime import datetime
 from redis import Redis
 from rq import Queue
@@ -28,26 +29,23 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("api.log"),
+        logging.FileHandler("./logs/api.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
+
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
 
 # Set up a synchronous Redis connection for the job queue
 redis_conn = Redis(host="localhost", port=6379, db=0)
 # job_queue = Queue("transcriptions", connection=redis_conn)
 
 # Directories for uploads and outputs
-UPLOAD_DIR = "./uploads"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
-    logger.info(f"Created upload directory: {UPLOAD_DIR}")
-
-OUTPUT_DIR = "./outputs"
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
-    logger.info(f"Created output directory: {OUTPUT_DIR}")
+base_dir = os.path.expanduser(config.get("directories", {}).get("base", "~/Documents/20-29_Work/20_Coding/AITranscription/backend-api"))
+UPLOAD_DIR = os.path.join(base_dir, config.get("directories", {}).get("uploads", "uploads"))
+OUTPUT_DIR = os.path.join(base_dir, config.get("directories", {}).get("outputs", "outputs"))
 
 # Redis key for storing transcription messages (history)
 REDIS_MESSAGES_KEY = "transcription_messages"

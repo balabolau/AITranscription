@@ -14,7 +14,7 @@ redis_host = os.environ.get("REDIS_HOST", "redis")
 logger.info(f"Connecting to Redis at {redis_host}:6379")
 
 try:
-    redis_conn = Redis(host="localhost", port=6379, db=0, socket_timeout=600)
+    redis_conn = Redis(host="localhost", port=6379, db=0)
     # Test connection.
     redis_conn.ping()
     logger.info("Connected to Redis successfully.")
