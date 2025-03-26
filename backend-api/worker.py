@@ -1,25 +1,44 @@
+# worker.py
 import os
 import logging
+import yaml
 from redis import Redis
 from rq import Worker, Queue
-from rq.connections import RedisConnection
 
-# Configure logging
+# Load centralized configuration
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+BASE_DIR = os.path.expanduser(config.get("directories", {}).get("base", ""))
+LOGS_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("logs", "logs"))
+
+# Configure logging using centralized settings
+log_config = config.get("logging", {})
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=getattr(logging, log_config.get("level", "INFO").upper()),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("./logs/worker.log"),
+        logging.FileHandler(os.path.join(LOGS_DIR, log_config.get("file", "api.log"))),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-redis_conn = Redis(host="localhost", port=6379, db=0)
+# Redis configuration
+redis_config = config.get("redis", {})
+redis_conn = Redis(
+    host=redis_config.get("host", "localhost"),
+    port=redis_config.get("port", 6379),
+    db=redis_config.get("db", 0)
+)
+
 queues = [Queue("transcriptions", connection=redis_conn)]
 
 if __name__ == '__main__':
-    logger.info("Starting RQ worker for transcription queue")
-    worker = Worker(queues, connection=redis_conn)
-    logger.info(f"Worker {worker.name} started, listening to queues: {', '.join([q.name for q in queues])}")
-    worker.work()
+    try:
+        logger.info("Starting RQ worker for transcription queue")
+        worker = Worker(queues, connection=redis_conn)
+        logger.info(f"Worker {worker.name} started, listening to queues: {', '.join([q.name for q in queues])}")
+        worker.work()
+    except Exception as e:
+        logger.error(f"Worker encountered an error: {e}")

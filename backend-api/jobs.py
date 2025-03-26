@@ -1,21 +1,39 @@
 # jobs.py
 import logging
 import os
+import yaml
 from redis import Redis
 from rq import Queue
-from whisper_process_v6 import process_audio_file, preprocess_audio, transcribe_file_in_chunks
+from whisper_process import process_audio_file
 
-# Set up logging.
-logging.basicConfig(level=logging.INFO)
+# Load centralized configuration
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+BASE_DIR = os.path.expanduser(config.get("directories", {}).get("base", ""))
+LOGS_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("logs", "logs"))
+
+# Configure logging using centralized settings
+log_config = config.get("logging", {})
+logging.basicConfig(
+    level=getattr(logging, log_config.get("level", "INFO").upper()),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(LOGS_DIR, log_config.get("file", "api.log"))),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Read the Redis host from the environment variable; default to 'redis' for Docker Compose.
-redis_host = os.environ.get("REDIS_HOST", "redis")
-logger.info(f"Connecting to Redis at {redis_host}:6379")
+# Get Redis configuration
+redis_config = config.get("redis", {})
+redis_host = redis_config.get("host", "localhost")
+redis_port = redis_config.get("port", 6379)
+redis_db = redis_config.get("db", 0)
+logger.info(f"Connecting to Redis at {redis_host}:{redis_port}")
 
 try:
-    redis_conn = Redis(host="localhost", port=6379, db=0)
-    # Test connection.
+    redis_conn = Redis(host=redis_host, port=redis_port, db=redis_db)
     redis_conn.ping()
     logger.info("Connected to Redis successfully.")
 except Exception as e:
@@ -23,12 +41,17 @@ except Exception as e:
     raise e
 
 # Create a queue for transcription jobs.
-job_queue = Queue('transcriptions', connection=redis_conn)
+job_queue = Queue("transcriptions", connection=redis_conn)
 
 def enqueue_transcription(file_path, output_dir, prompt_override=None, language_override=None):
     """
     Enqueue a transcription job using process_audio_file.
-    Returns the job ID.
+    
+    :param file_path: Path to the audio file to transcribe.
+    :param output_dir: Directory where the transcript will be saved.
+    :param prompt_override: Optional transcription prompt override.
+    :param language_override: Optional transcription language override.
+    :return: The enqueued job ID.
     """
     try:
         job = job_queue.enqueue_call(
@@ -41,16 +64,3 @@ def enqueue_transcription(file_path, output_dir, prompt_override=None, language_
     except Exception as e:
         logger.error("Error enqueuing job: " + str(e))
         raise e
-
-
-if __name__ == '__main__':
-    # Test enqueuing a job (adjust file paths as needed).
-    test_file = 'test_audio.wav'  # Ensure this file exists for testing.
-    test_output = 'test_output'     # Ensure this directory exists or adjust as needed.
-    test_prompt = 'Test prompt'
-    test_language = 'en'
-    try:
-        job_id = enqueue_transcription(test_file, test_output, test_prompt, test_language)
-        logger.info(f"Test job enqueued with ID: {job_id}")
-    except Exception as e:
-        logger.error("Test call failed: " + str(e))
