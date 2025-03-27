@@ -12,6 +12,7 @@ import yaml
 from datetime import datetime
 from redis import Redis
 from jobs import enqueue_transcription
+from starlette.websockets import WebSocket as StarletteWebSocket
 
 # Load centralized configuration
 with open("config.yaml", "r") as f:
@@ -64,7 +65,7 @@ def store_message(message: str):
     except Exception as e:
         logger.error(f"Error storing message in Redis: {e}")
 
-def get_recent_messages(count: int = 20):
+def get_recent_messages(count: int = 2):
     try:
         messages = redis_conn.lrange(REDIS_MESSAGES_KEY, 0, count - 1)
         return [json.loads(msg) for msg in messages]
@@ -72,38 +73,54 @@ def get_recent_messages(count: int = 20):
         logger.error(f"Error getting messages from Redis: {e}")
         return []
 
+class MyWebSocket(StarletteWebSocket):
+    # Override the origin check to always allow
+    def _origin_allowed(self) -> bool:
+        return True
+
 @app.websocket("/ws")
-async def websocket_endpoint(websocket):
+async def websocket_endpoint(websocket: MyWebSocket):
     client_id = str(id(websocket))[-6:]
     try:
+        logger.info(f"[WS {client_id}] Attempting to accept WebSocket connection")
         await websocket.accept()
+        logger.info(f"[WS {client_id}] WebSocket connection accepted")
         connected_clients.add(websocket)
-        logger.debug(f"WebSocket client {client_id} connected. Total: {len(connected_clients)}")
-        try:
-            recent_messages = get_recent_messages()
-            if recent_messages:
-                await websocket.send_text(json.dumps({
-                    "type": "history",
-                    "messages": recent_messages
-                }))
-                logger.debug(f"Sent history to client {client_id}")
-        except Exception as e:
-            logger.error(f"Error sending history to client {client_id}: {e}")
+        logger.info(f"[WS {client_id}] Added to connected clients (Total: {len(connected_clients)})")
+
+        # try:
+        #     recent_messages = get_recent_messages()
+        #     if recent_messages:
+        #         payload = json.dumps({
+        #             "type": "history",
+        #             "messages": recent_messages
+        #         })
+        #         await websocket.send_text(payload)
+        #         logger.info(f"[WS {client_id}] Sent history: {payload}")
+        # except Exception as e:
+        #     logger.exception(f"[WS {client_id}] Error sending history: {e}")
+
         while True:
             try:
-                await asyncio.wait_for(websocket.receive_text(), timeout=3600.0)
-            except asyncio.TimeoutError:
-                continue
+                message = await websocket.receive_text()
+                logger.info(f"[WS {client_id}] Received message: {message}")
+                # Optionally, process the message.
+            except Exception as e:
+                logger.exception(f"[WS {client_id}] Exception in receive loop: {e}")
+                break
     except WebSocketDisconnect:
-        connected_clients.remove(websocket)
-        logger.debug(f"WebSocket client {client_id} disconnected. Remaining: {len(connected_clients)}")
+        logger.info(f"[WS {client_id}] WebSocket client disconnected")
     except Exception as e:
-        logger.error(f"Unexpected error in websocket_endpoint: {e}")
+        logger.exception(f"[WS {client_id}] Unexpected error in websocket_endpoint: {e}")
+    finally:
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)
+            logger.info(f"[WS {client_id}] Removed from connected clients (Total: {len(connected_clients)})")
 
 async def broadcast_message(message: str):
-    logger.debug(f"Broadcasting: {message}")
+    logger.info(f"[Broadcast] Preparing to broadcast message: {message}")
     store_message(message)
-    update_message = json.dumps({
+    payload = json.dumps({
         "type": "update",
         "timestamp": datetime.now().isoformat(),
         "message": message
@@ -111,13 +128,15 @@ async def broadcast_message(message: str):
     disconnected_clients = set()
     for client in connected_clients:
         try:
-            await client.send_text(update_message)
+            await client.send_text(payload)
+            logger.info(f"[Broadcast] Sent update to client {str(id(client))[-6:]}: {payload}")
         except Exception as e:
-            client_id = str(id(client))[-6:]
-            logger.error(f"Error sending to client {client_id}: {e}")
+            logger.exception(f"[Broadcast] Error sending update to client {str(id(client))[-6:]}: {e}")
             disconnected_clients.add(client)
     for client in disconnected_clients:
-        connected_clients.remove(client)
+        if client in connected_clients:
+            connected_clients.remove(client)
+            logger.info(f"[Broadcast] Removed disconnected client {str(id(client))[-6:]}")
 
 @app.on_event("startup")
 async def start_pubsub_listener():
@@ -156,22 +175,27 @@ async def start_pubsub_listener():
 @app.post("/upload")
 async def upload_file(audioFile: UploadFile = File(...)):
     file_id = str(uuid.uuid4())
-    worker_logger = logging.getLogger("upload")
+    # worker_logger = logging.getLogger("upload")
     try:
-        worker_logger.info(f"Received file: {audioFile.filename} with assigned ID: {file_id}")
+        # worker_logger.info(f"Received file: {audioFile.filename} with assigned ID: {file_id}")
+        logger.info(f"Received file: {audioFile.filename} with assigned ID: {file_id}")
         file_location = os.path.join(UPLOAD_DIR, file_id + "_" + audioFile.filename)
         with open(file_location, "wb") as buffer:
             shutil.copyfileobj(audioFile.file, buffer)
-        worker_logger.info(f"File saved at {file_location}")
+        # worker_logger.info(f"File saved at {file_location}")
+        logger.info(f"File saved at {file_location}")
     except Exception as e:
-        worker_logger.error(f"Error saving file {audioFile.filename}: {e}")
+        # worker_logger.error(f"Error saving file {audioFile.filename}: {e}")
+        logger.error(f"Error saving file {audioFile.filename}: {e}")
         raise HTTPException(status_code=500, detail="Error saving file") from e
 
     try:
         job_id = enqueue_transcription(file_location, OUTPUT_DIR, prompt_override=None, language_override=None)
-        worker_logger.info(f"Enqueued transcription job with ID: {job_id}")
+        # worker_logger.info(f"Enqueued transcription job with ID: {job_id}")
+        logger.info(f"Enqueued transcription job with ID: {job_id}")
     except Exception as e:
-        worker_logger.error(f"Error enqueuing transcription job: {e}")
+        # worker_logger.error(f"Error enqueuing transcription job: {e}")
+        logger.error(f"Error enqueuing transcription job: {e}")
         raise HTTPException(status_code=500, detail="Error enqueuing transcription job") from e
     return {"jobId": job_id, "message": "File uploaded and transcription job enqueued"}
 

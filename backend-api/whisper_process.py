@@ -12,6 +12,8 @@ import whisper
 import warnings
 import yaml
 import gc
+import json
+from datetime import datetime
 from pydub import AudioSegment
 import concurrent.futures
 
@@ -56,6 +58,19 @@ CLEANUP_THRESHOLD = config.get("resources", {}).get("cleanup_threshold", 3)
 
 if torch.backends.mps.is_available():
     torch.backends.mps.allow_fallback = True
+
+def default_progress_callback(message: str):
+    try:
+        import redis
+        r = redis.Redis(host="localhost", port=6379, db=0)
+        payload = json.dumps({
+            "type": "update",
+            "timestamp": datetime.now().isoformat(),
+            "message": message
+        })
+        r.publish("job_updates", payload)
+    except Exception as e:
+        logger.error("Failed to publish progress: " + str(e))
 
 def preprocess_audio(input_path):
     """
@@ -253,6 +268,10 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
     total_chunks = 1 if audio_length <= int(chunk_duration * 1000) else math.ceil((audio_length - (chunk_duration * 1000)) / step) + 1
 
     logger.info(f"Starting chunk processing for {input_path} - {total_chunks} chunks expected.")
+    if progress_callback:
+        # progress_callback(f"Starting chunk processing for {os.path.basename(input_path)} - {total_chunks} chunks expected.")
+        progress_callback(f"Starting chunk processing - {total_chunks} chunks expected")
+
     overall_chunk_start = time.time()
 
     if NUM_WORKERS <= 1:
@@ -281,12 +300,15 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
                 logger.error(f"Error removing chunk file {chunk_filename}: {e}")
             i += 1
             chunk_time = time.time() - chunk_start_time
-            progress_percent = (i / total_chunks) * 100
-            logger.info(f"Chunk {i}/{total_chunks} transcribed in {chunk_time:.2f}s ({progress_percent:.2f}% complete)")
+            progress_percent = ((i) / total_chunks) * 100
+            msg = f"Chunk {i}/{total_chunks} transcribed in {chunk_time:.2f}s ({progress_percent:.2f}% complete)"
+            logger.info(msg)
             if progress_callback:
-                progress_callback(i, total_chunks, chunk_time)
+                progress_callback(msg)
         overall_chunk_time = time.time() - overall_chunk_start
         logger.info(f"All chunks processed in {overall_chunk_time:.2f}s")
+        if progress_callback:
+            progress_callback(f"All chunks processed in {overall_chunk_time:.2f}s")
         return "\n".join(transcriptions)
     else:
         from multiprocessing import Pool
@@ -323,7 +345,7 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
         logger.info(f"All chunks processed in {overall_chunk_time:.2f}s")
         return "\n".join(results)
 
-def process_audio_file(input_path, output_dir, prompt_override=None, language_override=None, progress_callback=None):
+def process_audio_file(input_path, output_dir, prompt_override=None, language_override=None, progress_callback=default_progress_callback):
     """
     Process an audio file: preprocess it, transcribe by chunks, and save the transcript.
     
@@ -336,13 +358,24 @@ def process_audio_file(input_path, output_dir, prompt_override=None, language_ov
     """
     overall_start = time.time()
     logger.info(f"Processing audio file: {input_path}")
+    if progress_callback:
+        progress_callback("Transcription started")
     preprocessed = preprocess_audio(input_path)
     if preprocessed is None:
         logger.error("Preprocessing failed for " + input_path)
+        if progress_callback:
+            progress_callback("Preprocessing failed")
         return False
-    text = transcribe_file_in_chunks(preprocessed, prompt_override=prompt_override, language_override=language_override, chunk_duration=CHUNK_DURATION, overlap=OVERLAP_DURATION, progress_callback=progress_callback)
+    logger.info("Audio preprocessed successfully: " + preprocessed)
+    if progress_callback:
+        progress_callback("Audio preprocessed successfully")
+    
+    text = transcribe_file_in_chunks(preprocessed, prompt_override=prompt_override, language_override=language_override,
+                                     chunk_duration=CHUNK_DURATION, overlap=OVERLAP_DURATION, progress_callback=progress_callback)
     overall_time = time.time() - overall_start
     logger.info(f"Total processing time for {input_path}: {overall_time:.2f}s")
+    if progress_callback:
+        progress_callback(f"Transcription finished in {overall_time:.2f}s")
     try:
         mem_usage = psutil.virtual_memory().percent
         logger.info(f"System memory usage after processing: {mem_usage}%")

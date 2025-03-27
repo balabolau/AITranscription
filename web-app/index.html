@@ -50,6 +50,17 @@
   <script>
     // Add a log entry with timestamp
     function addLogEntry(message, timestamp = null) {
+      try {
+        // If message looks like a JSON string, parse it
+        if (typeof message === 'string' && message.trim().startsWith('{') && message.trim().endsWith('}')) {
+          const parsed = JSON.parse(message);
+          if (parsed && parsed.message) {
+            message = parsed.message;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing message in addLogEntry:", e);
+      }
       const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
       const logEntry = document.createElement('div');
       logEntry.className = 'log-entry';
@@ -102,27 +113,26 @@
 
     // Function to initialize WebSocket connection for real-time updates
     function initWebSocket() {
-      const ws = new WebSocket('ws://localhost:8000/ws');
+      const ws = new WebSocket('ws://127.0.0.1:8000/ws');
       
       ws.onopen = () => {
         addLogEntry('WebSocket connection established');
       };
 
       ws.onmessage = (event) => {
-        console.log('Received message:', event.data);
+        console.log("onmessage handler triggered, raw event data:", event.data);
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'history') {
-            // Append history messages to log
             data.messages.reverse().forEach(msg => addLogEntry(msg.message, msg.timestamp));
           } else if (data.type === 'update') {
             addLogEntry(data.message, data.timestamp);
           } else {
-            addLogEntry(`Received: ${data.message || event.data}`);
+            addLogEntry(data.message || event.data);
           }
         } catch (e) {
-          addLogEntry(`Received: ${event.data}`);
-          console.error('Error parsing message:', e);
+          addLogEntry(event.data);
+          console.error('Error in onmessage handler:', e);
         }
       };
 
@@ -166,7 +176,7 @@
       })
       .then(data => {
         addLogEntry(`File uploaded successfully. Job ID: ${data.jobId}`);
-        addLogEntry('Waiting for transcription to begin...');
+        addLogEntry('Waiting for transcription to begin');
       })
       .catch(error => {
         console.error('Upload error:', error);
