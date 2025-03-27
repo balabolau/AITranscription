@@ -2,6 +2,7 @@
 from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.websockets import WebSocket as StarletteWebSocket
 import shutil
 import uuid
 import os
@@ -12,7 +13,7 @@ import yaml
 from datetime import datetime
 from redis import Redis
 from jobs import enqueue_transcription
-from starlette.websockets import WebSocket as StarletteWebSocket
+from contextlib import asynccontextmanager
 
 # Load centralized configuration
 with open("config.yaml", "r") as f:
@@ -35,7 +36,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("API server starting up")
+    
+    async def start_pubsub_listener():
+        logger.info("Starting Redis Pub/Sub listener for job updates")
+        try:
+            import redis.asyncio as redis_async
+            redis_sub = redis_async.Redis(
+                host=redis_config.get("host", "localhost"),
+                port=redis_config.get("port", 6379),
+                db=redis_config.get("db", 0)
+            )
+            pubsub = redis_sub.pubsub()
+            await pubsub.subscribe("job_updates")
+            logger.info("Subscribed to 'job_updates'")
+            
+            async def pubsub_listener():
+                logger.info("Pub/Sub listener running")
+                while True:
+                    try:
+                        message = await pubsub.get_message(ignore_subscribe_messages=True)
+                        if message:
+                            data = message["data"]
+                            if isinstance(data, bytes):
+                                data = data.decode("utf-8")
+                            logger.debug(f"Received from Redis: {data}")
+                            await broadcast_message(data)
+                            await asyncio.sleep(0.1)
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        logger.error(f"Error in pubsub listener: {e}")
+                        await asyncio.sleep(1.0)
+            # Schedule the pubsub listener as a background task
+            asyncio.create_task(pubsub_listener())
+        except Exception as e:
+            logger.error(f"Failed to start pubsub listener: {e}")
+
+    # Call the pubsub listener function so it actually starts
+    await start_pubsub_listener()
+    
+    yield
+    logger.info("API server shutting down")
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -138,39 +183,39 @@ async def broadcast_message(message: str):
             connected_clients.remove(client)
             logger.info(f"[Broadcast] Removed disconnected client {str(id(client))[-6:]}")
 
-@app.on_event("startup")
-async def start_pubsub_listener():
-    logger.info("Starting Redis Pub/Sub listener for job updates")
-    try:
-        import redis.asyncio as redis_async
-        redis_sub = redis_async.Redis(
-            host=redis_config.get("host", "localhost"),
-            port=redis_config.get("port", 6379),
-            db=redis_config.get("db", 0)
-        )
-        pubsub = redis_sub.pubsub()
-        await pubsub.subscribe("job_updates")
-        logger.info("Subscribed to 'job_updates'")
+# @app.on_event("startup")
+# async def start_pubsub_listener():
+#     logger.info("Starting Redis Pub/Sub listener for job updates")
+#     try:
+#         import redis.asyncio as redis_async
+#         redis_sub = redis_async.Redis(
+#             host=redis_config.get("host", "localhost"),
+#             port=redis_config.get("port", 6379),
+#             db=redis_config.get("db", 0)
+#         )
+#         pubsub = redis_sub.pubsub()
+#         await pubsub.subscribe("job_updates")
+#         logger.info("Subscribed to 'job_updates'")
         
-        async def pubsub_listener():
-            logger.info("Pub/Sub listener running")
-            while True:
-                try:
-                    message = await pubsub.get_message(ignore_subscribe_messages=True)
-                    if message:
-                        data = message["data"]
-                        if isinstance(data, bytes):
-                            data = data.decode("utf-8")
-                        logger.debug(f"Received from Redis: {data}")
-                        await broadcast_message(data)
-                        await asyncio.sleep(0.1)
-                    await asyncio.sleep(0.5)
-                except Exception as e:
-                    logger.error(f"Error in pubsub listener: {e}")
-                    await asyncio.sleep(1.0)
-        asyncio.create_task(pubsub_listener())
-    except Exception as e:
-        logger.error(f"Failed to start pubsub listener: {e}")
+#         async def pubsub_listener():
+#             logger.info("Pub/Sub listener running")
+#             while True:
+#                 try:
+#                     message = await pubsub.get_message(ignore_subscribe_messages=True)
+#                     if message:
+#                         data = message["data"]
+#                         if isinstance(data, bytes):
+#                             data = data.decode("utf-8")
+#                         logger.debug(f"Received from Redis: {data}")
+#                         await broadcast_message(data)
+#                         await asyncio.sleep(0.1)
+#                     await asyncio.sleep(0.5)
+#                 except Exception as e:
+#                     logger.error(f"Error in pubsub listener: {e}")
+#                     await asyncio.sleep(1.0)
+#         asyncio.create_task(pubsub_listener())
+#     except Exception as e:
+#         logger.error(f"Failed to start pubsub listener: {e}")
 
 @app.post("/upload")
 async def upload_file(audioFile: UploadFile = File(...)):
@@ -234,11 +279,3 @@ async def download_transcript(job_id: str):
     except Exception as e:
         logger.error(f"Error in download_transcript: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("API server starting up")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("API server shutting down")
