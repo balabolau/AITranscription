@@ -194,8 +194,14 @@ class WhisperTranscriber:
             logger.error(f"Memory check failed: {e}")
         start_time = time.time()
         fp16_setting = False if DEVICE in ["mps", "cpu"] else True
-        effective_prompt = prompt_override if prompt_override is not None else PROMPT_TEXT
-        effective_language = language_override if language_override is not None else LANGUAGE
+        effective_prompt = prompt_override if prompt_override != "" else ""
+        if language_override.lower() != "auto":
+            effective_language = language_override
+        else:
+            effective_language = ""
+
+        logger.info(f"Transcribing with prompt: {effective_prompt}, language: {effective_language}")
+
         transcribe_kwargs = {
             "audio": input_path,
             "task": "transcribe",
@@ -359,7 +365,7 @@ def process_audio_file(input_path, output_dir, prompt_override=None, language_ov
     overall_start = time.time()
     logger.info(f"Processing audio file: {input_path}")
     if progress_callback:
-        progress_callback("Transcription started")
+        progress_callback(f"Transcription started for {input_path.split('/')[-1]}")
     preprocessed = preprocess_audio(input_path)
     if preprocessed is None:
         logger.error("Preprocessing failed for " + input_path)

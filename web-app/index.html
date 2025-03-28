@@ -33,6 +33,13 @@
     <h2>Upload Audio File</h2>
     <form id="uploadForm" enctype="multipart/form-data">
       <input type="file" id="fileInput" name="audioFile" accept="audio/*" required>
+      <br>
+      <label for="language">Language:</label>
+      <input type="text" id="language" name="language" placeholder="auto (default)">
+      <br>
+      <label for="prompt">Prompt:</label>
+      <input type="text" id="prompt" name="prompt" placeholder="(Optional)">
+      <br>
       <button type="submit">Upload for Transcription</button>
     </form>
   </div>
@@ -164,6 +171,13 @@
       addLogEntry(`Uploading file: ${file.name} (${Math.round(file.size / 1024)} KB)`);
       const formData = new FormData();
       formData.append('audioFile', file);
+
+      // Get language and prompt values; default to "auto" and empty string if not provided.
+      const language = document.getElementById('language').value || "auto";
+      const prompt = document.getElementById('prompt').value || "";
+      formData.append('language', language);
+      formData.append('prompt', prompt);
+
       fetch('http://localhost:8000/upload', {
         method: 'POST',
         body: formData

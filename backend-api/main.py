@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.websockets import WebSocket as StarletteWebSocket
@@ -183,63 +183,27 @@ async def broadcast_message(message: str):
             connected_clients.remove(client)
             logger.info(f"[Broadcast] Removed disconnected client {str(id(client))[-6:]}")
 
-# @app.on_event("startup")
-# async def start_pubsub_listener():
-#     logger.info("Starting Redis Pub/Sub listener for job updates")
-#     try:
-#         import redis.asyncio as redis_async
-#         redis_sub = redis_async.Redis(
-#             host=redis_config.get("host", "localhost"),
-#             port=redis_config.get("port", 6379),
-#             db=redis_config.get("db", 0)
-#         )
-#         pubsub = redis_sub.pubsub()
-#         await pubsub.subscribe("job_updates")
-#         logger.info("Subscribed to 'job_updates'")
-        
-#         async def pubsub_listener():
-#             logger.info("Pub/Sub listener running")
-#             while True:
-#                 try:
-#                     message = await pubsub.get_message(ignore_subscribe_messages=True)
-#                     if message:
-#                         data = message["data"]
-#                         if isinstance(data, bytes):
-#                             data = data.decode("utf-8")
-#                         logger.debug(f"Received from Redis: {data}")
-#                         await broadcast_message(data)
-#                         await asyncio.sleep(0.1)
-#                     await asyncio.sleep(0.5)
-#                 except Exception as e:
-#                     logger.error(f"Error in pubsub listener: {e}")
-#                     await asyncio.sleep(1.0)
-#         asyncio.create_task(pubsub_listener())
-#     except Exception as e:
-#         logger.error(f"Failed to start pubsub listener: {e}")
-
 @app.post("/upload")
-async def upload_file(audioFile: UploadFile = File(...)):
+async def upload_file(
+    audioFile: UploadFile = File(...),
+    language: str = Form("auto"),
+    prompt: str = Form("")
+):
     file_id = str(uuid.uuid4())
-    # worker_logger = logging.getLogger("upload")
     try:
-        # worker_logger.info(f"Received file: {audioFile.filename} with assigned ID: {file_id}")
         logger.info(f"Received file: {audioFile.filename} with assigned ID: {file_id}")
         file_location = os.path.join(UPLOAD_DIR, file_id + "_" + audioFile.filename)
         with open(file_location, "wb") as buffer:
             shutil.copyfileobj(audioFile.file, buffer)
-        # worker_logger.info(f"File saved at {file_location}")
         logger.info(f"File saved at {file_location}")
     except Exception as e:
-        # worker_logger.error(f"Error saving file {audioFile.filename}: {e}")
         logger.error(f"Error saving file {audioFile.filename}: {e}")
         raise HTTPException(status_code=500, detail="Error saving file") from e
 
     try:
-        job_id = enqueue_transcription(file_location, OUTPUT_DIR, prompt_override=None, language_override=None)
-        # worker_logger.info(f"Enqueued transcription job with ID: {job_id}")
+        job_id = enqueue_transcription(file_location, OUTPUT_DIR, prompt_override=prompt, language_override=language)
         logger.info(f"Enqueued transcription job with ID: {job_id}")
     except Exception as e:
-        # worker_logger.error(f"Error enqueuing transcription job: {e}")
         logger.error(f"Error enqueuing transcription job: {e}")
         raise HTTPException(status_code=500, detail="Error enqueuing transcription job") from e
     return {"jobId": job_id, "message": "File uploaded and transcription job enqueued"}
