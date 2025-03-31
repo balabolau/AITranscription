@@ -43,17 +43,20 @@ The application consists of several components working together:
 The project is organized as follows:
 
 ```
-ai-transcriber-app/
-├── config.yaml                # Configuration file (YAML format)
-├── index.html                 # Web frontend for file upload and monitoring
-├── jobs.py                    # Job queue management code
-├── main.py                    # FastAPI backend (file upload, WebSocket, endpoints)
-├── whisper_process.py         # Core transcription and audio processing module
-├── worker.py                  # RQ worker for processing transcription jobs
-├── logs/                      # Directory for log files (e.g., api.log)
-├── uploads/                   # Directory for incoming audio files
-├── processing/                # Temporary storage for files being processed
-└── outputs/                   # Output directory for generated transcript files
+AITranscription/
+└── backend-api/
+    ├── config.yaml                # Configuration file (YAML format)
+    ├── jobs.py                    # Job queue management code
+    ├── main.py                    # FastAPI backend (file upload, WebSocket, endpoints)
+    ├── whisper_process.py         # Core transcription and audio processing module
+    ├── worker.py                  # RQ worker for processing transcription jobs
+    ├── logs/                      # Directory for log files (e.g., api.log)
+    ├── uploads/                   # Directory for incoming audio files
+    ├── processing/                # Temporary storage for files being processed
+    └── outputs/                   # Output directory for generated transcript files
+    
+└── web-app/
+    └── index.html                 # Web frontend for file upload and monitoring
 ```
 
 ## Getting Started
