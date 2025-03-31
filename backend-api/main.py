@@ -237,7 +237,10 @@ async def download_transcript(job_id: str):
             if filename.startswith(job_id + "_") and filename.endswith(".txt"):
                 file_path = os.path.join(OUTPUT_DIR, filename)
                 logger.info(f"Found transcript for job {job_id}: {file_path}")
-                return FileResponse(file_path, media_type="text/plain", filename=filename)
+                # Strip the job ID and underscore from the filename:
+                original_filename = filename.split("_", 1)[1] if "_" in filename else filename
+                return FileResponse(file_path, media_type="text/plain", filename=original_filename)
+
         logger.error(f"Transcript for job {job_id} not found")
         raise HTTPException(status_code=404, detail="Transcript not found")
     except Exception as e:

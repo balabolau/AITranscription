@@ -57,8 +57,8 @@ def enqueue_transcription(file_path, output_dir, prompt_override=None, language_
         job = job_queue.enqueue_call(
             func=process_audio_file,
             args=(file_path, output_dir, prompt_override, language_override),
-            timeout=1800  # 30 minutes timeout
-        )
+            timeout=7200  # 120 minutes timeout
+    )
         logger.info(f"Enqueued job with ID: {job.id}")
         return job.id
     except Exception as e:
