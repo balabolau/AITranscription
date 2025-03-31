@@ -2,63 +2,136 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Transcription App - File Upload</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Audio Transcriber</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" rel="stylesheet">
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .upload-form, .log-container, .transcriptions-container {
-      margin-top: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #f4f7f6;
+      margin: 0;
+      padding: 20px;
+      color: #333;
     }
-    .log-container, .transcriptions-container { 
-      height: 300px; 
-      overflow-y: auto; 
+    header {
+      text-align: center;
+      padding: 20px 0;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 2.5rem;
+      color: #007BFF;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .card {
+      background-color: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      margin-top: 0;
+      color: #007BFF;
+    }
+    form {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 15px;
+    }
+    form label {
+      font-weight: 500;
+    }
+    /* Set a consistent width for file and text inputs */
+    form input[type="file"],
+    form input[type="text"] {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 1rem;
+      width: 740px; /* Adjust as needed */
+    }
+    form button {
+      padding: 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 1rem;
+      background-color: #007BFF;
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    form button:hover {
+      background-color: #0056b3;
+    }
+    .log-container {
       background-color: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px;
+      height: 300px;
+      overflow-y: auto;
       font-family: monospace;
+      white-space: pre-wrap;
+      margin-top: 10px;
     }
-    .log-entry, .transcription-entry {
-      padding: 4px; margin: 2px 0; border-bottom: 1px solid #eee;
-      font-size: 14px;
+    .transcriptions-container {
+      margin-top: 10px;
     }
-    button {
-      padding: 8px 15px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;
+    .transcription-entry {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
     }
-    button:hover { background-color: #45a049; }
-    h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+    .transcription-entry a {
+      text-decoration: none;
+      color: #007BFF;
+    }
+    .transcription-entry a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
-  <h1>Audio Transcription Service</h1>
-  
-  <!-- File Upload Form -->
-  <div class="upload-form">
-    <h2>Upload Audio File</h2>
-    <form id="uploadForm" enctype="multipart/form-data">
-      <input type="file" id="fileInput" name="audioFile" accept="audio/*" required>
-      <br>
-      <label for="language">Language:</label>
-      <input type="text" id="language" name="language" placeholder="auto (default)">
-      <br>
-      <label for="prompt">Prompt:</label>
-      <input type="text" id="prompt" name="prompt" placeholder="(Optional)">
-      <br>
-      <button type="submit">Upload for Transcription</button>
-    </form>
+  <header>
+    <h1>Audio Transcriber</h1>
+  </header>
+  <div class="container">
+    <div class="card">
+      <h2>Upload Audio File</h2>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <label for="fileInput">Select Audio File</label>
+        <input type="file" id="fileInput" name="audioFile" accept="audio/*" required>
+        
+        <label for="language">Language (default: auto-detect)</label>
+        <input type="text" id="language" name="language" placeholder="auto">
+        
+        <label for="prompt">Prompt (optional)</label>
+        <input type="text" id="prompt" name="prompt" placeholder="Enter prompt...">
+        
+        <button type="submit">Upload for Transcription</button>
+      </form>
+    </div>
+    
+    <div class="card">
+      <h2>Transcription Log</h2>
+      <div class="log-container" id="logContainer"></div>
+    </div>
+    
+    <div class="card">
+      <h2>Available Transcriptions</h2>
+      <button id="refreshBtn">Refresh Transcriptions</button>
+      <div class="transcriptions-container" id="transcriptionsContainer"></div>
+    </div>
   </div>
-
-  <!-- Transcription Log Section -->
-  <h2>Transcription Log</h2>
-  <div class="log-container" id="logContainer"></div>
-
-  <!-- Available Transcriptions Section -->
-  <h2>Available Transcriptions</h2>
-  <button id="refreshBtn">Refresh Transcriptions</button>
-  <div class="transcriptions-container" id="transcriptionsContainer"></div>
-
-  <!-- JavaScript Section -->
+  
   <script>
-    // Add a log entry with timestamp
+    // Function to add a log entry with timestamp
     function addLogEntry(message, timestamp = null) {
+      // If message is a JSON string, attempt to extract only the message field.
       try {
-        // If message looks like a JSON string, parse it
         if (typeof message === 'string' && message.trim().startsWith('{') && message.trim().endsWith('}')) {
           const parsed = JSON.parse(message);
           if (parsed && parsed.message) {
@@ -77,7 +150,7 @@
       logContainer.scrollTop = logContainer.scrollHeight;
     }
 
-    // Add a transcription entry to the Available Transcriptions section
+    // Function to add a transcription entry for downloads
     function addTranscriptionEntry(entry) {
       const container = document.getElementById('transcriptionsContainer');
       const div = document.createElement('div');
@@ -87,7 +160,7 @@
       container.appendChild(div);
     }
 
-    // Function to load transcriptions from the backend
+    // Function to load transcriptions from backend
     function loadTranscriptions() {
       fetch('http://localhost:8000/transcriptions')
       .then(response => {
@@ -98,7 +171,7 @@
       })
       .then(data => {
         const container = document.getElementById('transcriptionsContainer');
-        container.innerHTML = ''; // Clear current list
+        container.innerHTML = '';
         if (data.length === 0) {
           container.innerHTML = '<p>No transcriptions available yet.</p>';
         } else {
@@ -111,23 +184,19 @@
         addLogEntry(`ERROR: Could not load transcriptions - ${error.message}`);
       });
     }
-
-    // Initial load of transcriptions
+    
     loadTranscriptions();
-
-    // Refresh button event listener
     document.getElementById('refreshBtn').addEventListener('click', loadTranscriptions);
-
-    // Function to initialize WebSocket connection for real-time updates
+    
+    // WebSocket initialization for real-time progress updates
     function initWebSocket() {
       const ws = new WebSocket('ws://127.0.0.1:8000/ws');
       
       ws.onopen = () => {
         addLogEntry('WebSocket connection established');
       };
-
+      
       ws.onmessage = (event) => {
-        console.log("onmessage handler triggered, raw event data:", event.data);
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'history') {
@@ -142,23 +211,21 @@
           console.error('Error in onmessage handler:', e);
         }
       };
-
+      
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         addLogEntry('ERROR: WebSocket connection error');
       };
-
+      
       ws.onclose = (event) => {
         addLogEntry(`WebSocket connection closed: ${event.code}`);
-        // Optionally, attempt reconnection here...
       };
-
+      
       return ws;
     }
-
-    // Initialize WebSocket connection on page load
+    
     let socket = initWebSocket();
-
+    
     // Handle file upload form submission
     document.getElementById('uploadForm').addEventListener('submit', function(event) {
       event.preventDefault();
@@ -171,13 +238,12 @@
       addLogEntry(`Uploading file: ${file.name} (${Math.round(file.size / 1024)} KB)`);
       const formData = new FormData();
       formData.append('audioFile', file);
-
-      // Get language and prompt values; default to "auto" and empty string if not provided.
+      
       const language = document.getElementById('language').value || "auto";
       const prompt = document.getElementById('prompt').value || "";
       formData.append('language', language);
       formData.append('prompt', prompt);
-
+      
       fetch('http://localhost:8000/upload', {
         method: 'POST',
         body: formData
