@@ -123,7 +123,16 @@
     <div class="card">
       <h2>Available Transcriptions</h2>
       <button id="refreshBtn">Refresh Transcriptions</button>
-      <div class="transcriptions-container" id="transcriptionsContainer"></div>
+      <table id="transcriptionsTable" style="width:100%; margin-top:10px; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">File Name</th>
+            <th style="text-align:left;">Transcribed On</th>
+            <th style="text-align:left;">Download</th>
+          </tr>
+        </thead>
+        <tbody id="transcriptionsBody"></tbody>
+      </table>
     </div>
   </div>
   
@@ -151,39 +160,45 @@
     }
 
     // Function to add a transcription entry for downloads
-    function addTranscriptionEntry(entry) {
-      const container = document.getElementById('transcriptionsContainer');
-      const div = document.createElement('div');
-      div.className = 'transcription-entry';
-      div.innerHTML = `<strong>${entry.original_filename}</strong> 
-                       (<a href="${entry.download_url}" download>Download</a>)`;
-      container.appendChild(div);
+    function addTranscriptionRow(entry) {
+      const tbody = document.getElementById('transcriptionsBody');
+      const row = document.createElement('tr');
+      
+      // Convert epoch time to a human-readable format
+      const date = new Date(entry.transcribed_on * 1000).toLocaleString();
+
+      row.innerHTML = `
+        <td>${entry.original_filename}</td>
+        <td>${date}</td>
+        <td><a href="${entry.download_url}" download>Download</a></td>
+      `;
+      tbody.appendChild(row);
     }
 
     // Function to load transcriptions from backend
     function loadTranscriptions() {
-      fetch('http://localhost:8000/transcriptions')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`Server responded with status: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then(data => {
-        const container = document.getElementById('transcriptionsContainer');
-        container.innerHTML = '';
-        if (data.length === 0) {
-          container.innerHTML = '<p>No transcriptions available yet.</p>';
-        } else {
-          data.forEach(entry => {
-            addTranscriptionEntry(entry);
+        fetch('http://localhost:8000/transcriptions')
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`Server responded with status: ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            const tbody = document.getElementById('transcriptionsBody');
+            tbody.innerHTML = ''; // Clear current rows
+            if (data.length === 0) {
+              addLogEntry("No transcriptions available yet.");
+            } else {
+              data.forEach(entry => {
+                addTranscriptionRow(entry);
+              });
+            }
+          })
+          .catch(error => {
+            addLogEntry(`ERROR: Could not load transcriptions - ${error.message}`);
           });
-        }
-      })
-      .catch(error => {
-        addLogEntry(`ERROR: Could not load transcriptions - ${error.message}`);
-      });
-    }
+      }
     
     loadTranscriptions();
     document.getElementById('refreshBtn').addEventListener('click', loadTranscriptions);

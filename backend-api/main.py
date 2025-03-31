@@ -6,6 +6,7 @@ from starlette.websockets import WebSocket as StarletteWebSocket
 import shutil
 import uuid
 import os
+import time
 import asyncio
 import logging
 import json
@@ -221,13 +222,24 @@ async def list_transcriptions():
                 else:
                     job_id = "unknown"
                     original_filename = filename
+                
+                file_path = os.path.join(OUTPUT_DIR, filename)
+                # Use file's modification time as the "transcribed on" time
+                mtime = os.path.getmtime(file_path)  # returns a float (epoch time)
+
                 transcripts.append({
                     "job_id": job_id,
                     "original_filename": original_filename,
-                    "download_url": f"http://localhost:8000/download/{job_id}"
+                    "download_url": f"http://localhost:8000/download/{job_id}",
+                    "transcribed_on": mtime
                 })
+
+        # Sort transcripts in descending order (newest first)
+        transcripts.sort(key=lambda x: x["transcribed_on"], reverse=True)
+
     except Exception as e:
         logger.error(f"Error listing transcriptions: {e}")
+
     return transcripts
 
 @app.get("/download/{job_id}")
