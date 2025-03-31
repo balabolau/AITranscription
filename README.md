@@ -1,148 +1,123 @@
 # AI Audio Transcriber Application
 
-This application is a robust, configurable speech-to-text transcription system built around OpenAI's Whisper model. It automates the transcription of audio files, preprocessing audio (normalization, resampling via `ffmpeg`), splitting audio into overlapping chunks, and transcribing each chunk using Whisper. The system includes detailed error handling, performance monitoring, and dynamic resource management.
+This application is a configurable, web-based speech-to-text transcription system built around OpenAI's Whisper model. It accepts audio file uploads via a simple web interface, allowing users to optionally specify a transcription language and a custom prompt. The backend API enqueues transcription jobs using Redis and processes them sequentially through an RQ worker, while real-time progress updates are broadcast to the frontend via WebSocket.
 
 ## System Overview
 
 The application consists of several components working together:
 
-- **Telegram Bot (bot_v7.py):**  
-  An asynchronous Telegram bot built with the python-telegram-bot library. Users can submit audio files via chat, select a transcription language using inline keyboards, and receive the transcript as a text file. Access is controlled through allowed chat IDs specified in a YAML configuration file.
+- **Web Frontend (index.html):**  
+  A minimal interface for uploading audio files. In addition to selecting an audio file, users can specify a transcription language (defaulting to auto-detect) and an optional prompt. The frontend displays live progress updates and lists completed transcriptions available for download.
 
-- **Redis Queue System:**  
-  The application uses Redis and RQ (Redis Queue) to manage transcription jobs, allowing for distributed processing and better resource management.
+- **Backend API (main.py):**  
+  Built with FastAPI, it handles file uploads, starts a WebSocket for real-time updates, and serves endpoints to list and download transcriptions. Uploaded files are saved locally and passed as jobs to the transcription queue.
 
-- **Worker Process:**  
-  Processes transcription jobs from the Redis queue. Multiple workers can be deployed to handle jobs in parallel.
+- **Job Queue (Redis & RQ):**  
+  The application uses Redis to store progress messages and to manage a job queue. Each transcription request is enqueued and processed asynchronously by a worker.
 
-- **RQ Dashboard (dashboard.py):**  
-  A web interface for monitoring the queue and job status, accessible on port 9181.
+- **Transcription Processing (whisper_process.py):**  
+  The core transcription logic pre-processes audio files using `ffmpeg` (normalization, resampling, and loudness adjustment), splits audio into overlapping chunks, and transcribes each chunk using the Whisper model. Progress updates are published at key stages (e.g., transcription start, per-chunk progress, transcription completion).
 
-The core transcription logic is implemented in **whisper_process_v6.py**, which:
-- Preprocesses audio using `ffmpeg` (mono conversion, resampling to 16 kHz, and loudness normalization)
-- Splits audio into overlapping chunks to improve transcription quality
-- Processes chunks sequentially or in parallel (configurable via a YAML file) while managing system memory and performing periodic cleanup
-- Logs processing progress and errors to a dedicated log file
+- **Worker Process (worker.py):**  
+  An RQ worker listens on the transcription queue and processes jobs one at a time, ensuring that multiple file uploads are handled sequentially rather than in parallel.
 
 ## Features
 
-- **Asynchronous Job Processing:**  
-  Uses Redis Queue to handle transcription requests asynchronously, improving system scalability and reliability.
-  
-- **Docker Containerization:**  
-  The entire application is containerized using Docker and orchestrated with Docker Compose, making deployment and scaling straightforward.
+- **Web-Based File Upload and Real-Time Updates:**  
+  Users can upload audio files, optionally specify a language and prompt, and receive live progress updates via WebSocket.
 
-- **Audio Preprocessing:**  
-  Converts audio files to a consistent format (mono, 16 kHz) and applies volume normalization using `ffmpeg`.
+- **Configurable Transcription Parameters:**  
+  The application uses a YAML configuration file (`config.yaml`) to set parameters such as model size, device, chunk duration, overlap, and resource thresholds. Users can override language and prompt on the fly.
 
-- **Chunked Transcription:**  
-  Splits audio into overlapping chunks to handle long files efficiently and improve transcription accuracy.
+- **Asynchronous, Sequential Processing:**  
+  Transcription jobs are enqueued in Redis and processed sequentially by a single RQ worker, ensuring that jobs are handled one after the other.
 
-- **Configurable Processing Parameters:**  
-  Uses a YAML configuration file (`config.yaml`) to set parameters such as model size, device, transcription temperature, beam size, chunk duration, overlap, and resource thresholds.
+- **Robust Audio Preprocessing:**  
+  Uses `ffmpeg` to convert audio to a consistent format (mono, 16 kHz) with loudness normalization and splits audio into overlapping chunks for improved transcription accuracy.
 
-- **Telegram Bot Integration:**  
-  Provides an asynchronous Telegram bot interface for on-demand transcription. Users interact with inline keyboards to select transcription language and submit prompts.
-
-- **Web-based Monitoring Dashboard:**  
-  Provides real-time visibility into the job queue, worker status, and job completion statistics.
-
-- **Dynamic Resource Management:**  
-  Monitors system memory and performs cleanups automatically during transcription to maintain performance.
-
-- **Robust Error Handling & Logging:**  
-  Logs detailed progress and error messages to help diagnose issues. Unsupported or failed files are automatically moved to a designated error directory.
+- **Detailed Logging and Progress Reporting:**  
+  Logs are written to file and streamed to the frontend via WebSocket, providing a clear view of the processing stages and performance metrics.
 
 ## Directory Structure
 
-The project has the following directory structure:
+The project is organized as follows:
 
 ```
 ai-transcriber-app/
-├── application/                # Application code
-│   ├── bot_v7.py              # Telegram bot for on-demand transcription
-│   ├── whisper_process_v6.py  # Core transcription and audio processing module
-│   ├── jobs.py                # Job queue management code
-│   ├── dashboard.py           # RQ Dashboard for monitoring jobs
-│   ├── requirements.txt       # Python dependencies
-│   ├── Dockerfile             # For building the application container
-│   └── docker-compose.yml     # Container orchestration
 ├── config.yaml                # Configuration file (YAML format)
-├── audio_input/               # Directory for input audio files
+├── index.html                 # Web frontend for file upload and monitoring
+├── jobs.py                    # Job queue management code
+├── main.py                    # FastAPI backend (file upload, WebSocket, endpoints)
+├── whisper_process.py         # Core transcription and audio processing module
+├── worker.py                  # RQ worker for processing transcription jobs
+├── logs/                      # Directory for log files (e.g., api.log)
+├── uploads/                   # Directory for incoming audio files
 ├── processing/                # Temporary storage for files being processed
-├── transcripts/               # Output directory for generated transcript files
-├── logs/                      # Log files directory
-├── downloads/                 # Temporary storage for downloaded audio files
-├── error/                     # Directory for unsupported or failed files
-└── archive/                   # Archive of processed files
+└── outputs/                   # Output directory for generated transcript files
 ```
 
 ## Getting Started
 
 ### Prerequisites
 
-- **Docker and Docker Compose:** For containerized deployment.
-- **GPU (Optional):** The application can run on CPU, but a GPU will significantly improve transcription speed.
+- **Python 3.10+**
+- **Redis:** Ensure Redis is installed and running (for local development you can run it as a daemon).
+- **FFmpeg:** Installed and accessible from your system path.
+- **Dependencies:** Install Python dependencies via pip (see `requirements.txt` if provided).
 
-### Configuration
+### Local Development
 
-1. **config.yaml:**  
-   Adjust `config.yaml` to set your desired transcription parameters, directories, Telegram bot token, allowed chat IDs, and model settings.
+1. **Configure the Application:**  
+   Edit `config.yaml` to adjust transcription parameters, directory paths, and resource thresholds as needed.
 
-2. **Directory Permissions:**  
-   Ensure that the directories defined in `config.yaml` exist and are writable by the Docker containers.
-
-### Deployment with Docker Compose
-
-The application is designed to be deployed using Docker Compose:
-
-1. **Build the Docker Image:**
+2. **Start Redis:**  
+   Run Redis in daemon mode:
    ```bash
-   cd application
-   docker build -t whisper-transcriber-app:v7 .
+   redis-server --daemonize yes
    ```
 
-2. **Start the Services:**
+3. **Launch the Backend API:**  
+   From the project root, start the FastAPI server (for example, with uvicorn):
    ```bash
-   docker-compose up -d
+   uvicorn main:app
    ```
 
-   This starts the following services:
-   - Redis server for job queuing
-   - Main application with the Telegram bot
-   - RQ Dashboard for monitoring jobs
-   - Worker processes to handle transcription jobs
+4. **Start the Worker:**  
+   In a separate terminal, run:
+   ```bash
+   python worker.py
+   ```
 
-3. **Monitoring:**  
-   Access the RQ Dashboard at `http://your-server-ip:9181/rq` to monitor job status.
+5. **Access the Web Interface:**  
+   Open your browser and navigate to the location where you serve `index.html` (for local testing, you might use a simple HTTP server, e.g., `python -m http.server 8080`).
 
-## Docker Compose Services
+6. **Upload and Monitor:**  
+   Use the web interface to upload audio files, specifying language and prompt if desired. Monitor real-time progress and download completed transcriptions.
 
-The application uses Docker Compose to orchestrate multiple containers:
+## Considerations for Production
 
-- **Redis:** Message broker and job queue database
-- **App:** Runs the Telegram bot and handles user interactions
-- **Dashboard:** Provides the RQ web interface for monitoring jobs
-- **Worker:** Processes transcription jobs from the queue
+- **Containerization:**  
+  For production, consider containerizing the application using Docker and orchestrating services with Docker Compose.
 
-Each service is configured with appropriate resource limits and restart policies for production use.
+- **Scaling:**  
+  In production, you may choose to run multiple worker processes or even split services (API, worker, static file server) into separate containers.
+
+- **Security:**  
+  Implement proper access control (e.g., authentication, HTTPS) for both the API and the web interface.
+
+- **File Naming:**  
+  Transcripts are stored with a unique name that includes the job ID. You can customize the download endpoint to present a clean file name to the user if desired.
 
 ## Troubleshooting
 
-- **Audio Preprocessing Errors:**  
-  Check the logs for detailed error messages related to `ffmpeg` commands.
+- **WebSocket and Pub/Sub Issues:**  
+  Check logs in `logs/api.log` for any errors related to Redis Pub/Sub or WebSocket connections.
 
-- **Memory Issues:**  
-  Check the Docker log files and consider adjusting memory limits in the docker-compose.yml file.
+- **Audio Processing Errors:**  
+  Inspect log messages for details on any `ffmpeg` or transcription errors.
 
 - **Redis Connection Issues:**  
-  Verify that the Redis service is running and that your environment variables are correctly set.
-
-- **Telegram Bot Not Responding:**  
-  Verify that the bot token is correct and that your allowed chat IDs are configured properly in `config.yaml`.
-
-- **Worker Not Processing Jobs:**  
-  Check worker logs and verify that it's connected to Redis correctly. Adjust JOB_TIMEOUT in docker-compose.yml if jobs are timing out.
+  Verify that Redis is running and accessible based on the settings in `config.yaml`.
 
 ## License
 
