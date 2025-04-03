@@ -52,7 +52,26 @@
       border: 1px solid #ccc;
       border-radius: 4px;
       font-size: 1rem;
-      width: 740px; /* Adjust as needed */
+      width: 100%; /* Adjust width as needed */
+      max-width: 760px; /* Set a max width for larger screens */
+      background-color: #fff;
+      appearance: none; /* Removes default dropdown arrow in some browsers (optional) */
+      box-sizing: border-box;
+    }
+    form select {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 1rem;
+      width: 100%;
+      max-width: 760px;
+      background-color: #fff;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D'12'%20height%3D'12'%20viewBox%3D'0%200%2012%2012'%20xmlns%3D'http%3A//www.w3.org/2000/svg'%3E%3Cpath%20d%3D'M1%204l5%205%205-5'%20stroke%3D'%23007BFF'%20stroke-width%3D'2'%20fill%3D'none'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
     }
     form button {
       padding: 10px;
@@ -92,6 +111,15 @@
     .transcription-entry a:hover {
       text-decoration: underline;
     }
+    /* Style for the progress bar card */
+    .progress-container {
+      text-align: center;
+    }
+    progress {
+      width: 100%;
+      max-width: 740px;
+      height: 25px;
+    }
   </style>
 </head>
 <body>
@@ -99,14 +127,20 @@
     <h1>Audio Transcriber</h1>
   </header>
   <div class="container">
+    <!-- Upload Card -->
     <div class="card">
       <h2>Upload Audio File</h2>
       <form id="uploadForm" enctype="multipart/form-data">
         <label for="fileInput">Select Audio File</label>
         <input type="file" id="fileInput" name="audioFile" accept="audio/*" required>
         
-        <label for="language">Language (default: auto-detect)</label>
-        <input type="text" id="language" name="language" placeholder="auto">
+        <label for="language">Language</label>
+        <select id="language" name="language">
+          <option value="auto">Auto-detect</option>
+          <option value="en">English (en)</option>
+          <option value="fr">French (fr)</option>
+          <!-- Add additional languages as needed -->
+        </select>
         
         <label for="prompt">Prompt (optional)</label>
         <input type="text" id="prompt" name="prompt" placeholder="Enter prompt...">
@@ -114,12 +148,21 @@
         <button type="submit">Upload for Transcription</button>
       </form>
     </div>
+
+    <!-- Progress Bar Card -->
+    <div class="card progress-container">
+      <h2>Progress</h2>
+      <progress id="progressBar" value="0" max="100"></progress>
+      <!-- <div id="progressText"></div> -->
+    </div>
     
+    <!-- Transcription Log Card -->
     <div class="card">
       <h2>Transcription Log</h2>
       <div class="log-container" id="logContainer"></div>
     </div>
     
+    <!-- Available Transcriptions Card -->
     <div class="card">
       <h2>Available Transcriptions</h2>
       <button id="refreshBtn">Refresh Transcriptions</button>
@@ -137,6 +180,14 @@
   </div>
   
   <script>
+    // Function to update the progress bar
+    function updateProgressBar(percentage) {
+      const progressBar = document.getElementById('progressBar');
+      progressBar.value = percentage;
+      const progressText = document.getElementById('progressText');
+      progressText.textContent = `${percentage.toFixed(2)}% complete`;
+    }
+    
     // Function to add a log entry with timestamp
     function addLogEntry(message, timestamp = null) {
       // If message is a JSON string, attempt to extract only the message field.
@@ -217,6 +268,19 @@
           if (data.type === 'history') {
             data.messages.reverse().forEach(msg => addLogEntry(msg.message, msg.timestamp));
           } else if (data.type === 'update') {
+            // Reset progress bar if the message indicates a new transcription is starting.
+            if (data.message && data.message.toLowerCase().includes("transcription started")) {
+              updateProgressBar(0);
+            }
+            // Check for chunk progress messages, e.g., "Chunk 1/2 transcribed in ..." and update the bar.
+            const regex = /Chunk\s+(\d+)\/(\d+)/;
+            const match = regex.exec(data.message);
+            if (match) {
+              const current = parseInt(match[1]);
+              const total = parseInt(match[2]);
+              const percent = (current / total) * 100;
+              updateProgressBar(percent);
+            }
             addLogEntry(data.message, data.timestamp);
           } else {
             addLogEntry(data.message || event.data);
@@ -226,7 +290,7 @@
           console.error('Error in onmessage handler:', e);
         }
       };
-      
+
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         addLogEntry('ERROR: WebSocket connection error');
