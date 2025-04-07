@@ -1,3 +1,8 @@
+"""
+jobs.py - This module handles job queuing for audio transcription using Redis and RQ.
+All configuration, including sensitive credentials, is loaded from config.yaml.
+"""
+
 from logging_config import *
 import logging
 logger = logging.getLogger(__name__)
@@ -15,7 +20,7 @@ with open("config.yaml", "r") as f:
 BASE_DIR = os.path.expanduser(config.get("directories", {}).get("base", ""))
 LOGS_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("logs", "logs"))
 
-# Get Redis configuration
+# Get Redis configuration (stored in config.yaml for security)
 redis_config = config.get("redis", {})
 redis_host = redis_config.get("host", "localhost")
 redis_port = redis_config.get("port", 6379)

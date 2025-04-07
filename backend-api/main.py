@@ -1,3 +1,9 @@
+"""
+main.py - The main FastAPI application for the audio transcription service.
+Handles file uploads, WebSocket connections for real-time updates, and retrieval of transcriptions.
+All configuration and sensitive credentials are loaded from config.yaml.
+"""
+
 from logging_config import *
 import logging
 logger = logging.getLogger(__name__)
@@ -91,6 +97,9 @@ MAX_MESSAGES = 100
 connected_clients = set()
 
 def store_message(message: str):
+    """
+    Store a log message in Redis with a timestamp.
+    """
     try:
         timestamp = datetime.now().isoformat()
         message_data = json.dumps({"timestamp": timestamp, "message": message})
@@ -100,6 +109,9 @@ def store_message(message: str):
         logger.error(f"Error storing message in Redis: {e}")
 
 def get_recent_messages(count: int = 2):
+    """
+    Retrieve the most recent log messages from Redis.
+    """
     try:
         messages = redis_conn.lrange(REDIS_MESSAGES_KEY, 0, count - 1)
         return [json.loads(msg) for msg in messages]
@@ -137,6 +149,9 @@ async def websocket_endpoint(websocket: MyWebSocket):
             logger.info(f"[WS {client_id}] Removed from connected clients (Total: {len(connected_clients)})")
 
 async def broadcast_message(message: str):
+    """
+    Broadcast a message to all connected WebSocket clients and store it in Redis.
+    """
     logger.info(f"[Broadcast] Preparing to broadcast message: {message}")
     store_message(message)
     payload = json.dumps({

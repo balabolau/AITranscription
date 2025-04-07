@@ -1,3 +1,9 @@
+"""
+logging_config.py - Centralized logging configuration for the audio transcription app.
+This module loads settings from config.yaml and sets up JSON logging using dictConfig.
+It also reconfigures external loggers (e.g., 'rq.worker' and 'whisper_process') to use JSON formatting.
+"""
+
 import os
 import yaml
 import logging

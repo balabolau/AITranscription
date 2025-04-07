@@ -1,3 +1,9 @@
+"""
+whisper_process.py - This module handles audio preprocessing and transcription using the Whisper model.
+It includes functionality to split audio into chunks, transcribe each chunk, and perform resource cleanup.
+All configuration and sensitive settings are loaded from config.yaml.
+"""
+
 from logging_config import *
 import logging
 logger = logging.getLogger(__name__)

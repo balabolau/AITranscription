@@ -10,16 +10,19 @@ The application consists of several components working together:
   A minimal interface for uploading audio files. In addition to selecting an audio file, users can specify a transcription language (defaulting to auto-detect) and an optional prompt. The frontend displays live progress updates and lists completed transcriptions available for download.
 
 - **Backend API (main.py):**  
-  Built with FastAPI, it handles file uploads, starts a WebSocket for real-time updates, and serves endpoints to list and download transcriptions. Uploaded files are saved locally and passed as jobs to the transcription queue.
+  Built with FastAPI, it handles file uploads, manages WebSocket connections for real-time progress updates, and provides endpoints to list and download transcriptions. Uploaded files are saved locally and passed as jobs to the transcription queue.
 
 - **Job Queue (Redis & RQ):**  
-  The application uses Redis to store progress messages and to manage a job queue. Each transcription request is enqueued and processed asynchronously by a worker.
+  The application uses Redis to store progress messages and manage a job queue. Each transcription request is enqueued and processed asynchronously by a dedicated worker.
 
 - **Transcription Processing (whisper_process.py):**  
-  The core transcription logic pre-processes audio files using `ffmpeg` (normalization, resampling, and loudness adjustment), splits audio into overlapping chunks, and transcribes each chunk using the Whisper model. Progress updates are published at key stages (e.g., transcription start, per-chunk progress, transcription completion).
+  The core transcription logic pre-processes audio files using `ffmpeg` (for normalization, resampling, and loudness adjustment), splits audio into overlapping chunks, and transcribes each chunk using the Whisper model. Progress updates are published at key stages (transcription start, per-chunk progress, and completion).
 
 - **Worker Process (worker.py):**  
-  An RQ worker listens on the transcription queue and processes jobs one at a time, ensuring that multiple file uploads are handled sequentially rather than in parallel.
+  An RQ worker listens on the transcription queue and processes jobs sequentially. This ensures that multiple file uploads are handled one after another.
+
+- **Centralized Logging:**  
+  A centralized logging configuration outputs logs in JSON format, making them easier to integrate with monitoring tools and simplifying debugging.
 
 ## Features
 
@@ -27,16 +30,16 @@ The application consists of several components working together:
   Users can upload audio files, optionally specify a language and prompt, and receive live progress updates via WebSocket.
 
 - **Configurable Transcription Parameters:**  
-  The application uses a YAML configuration file (`config.yaml`) to set parameters such as model size, device, chunk duration, overlap, and resource thresholds. Users can override language and prompt on the fly.
+  The application is highly configurable via a YAML configuration file (`config.yaml`). This file includes settings for the transcription model, chunking parameters, resource thresholds, and more.
 
 - **Asynchronous, Sequential Processing:**  
-  Transcription jobs are enqueued in Redis and processed sequentially by a single RQ worker, ensuring that jobs are handled one after the other.
+  Transcription jobs are enqueued in Redis and processed sequentially by a single RQ worker, ensuring orderly job execution.
 
 - **Robust Audio Preprocessing:**  
-  Uses `ffmpeg` to convert audio to a consistent format (mono, 16 kHz) with loudness normalization and splits audio into overlapping chunks for improved transcription accuracy.
+  Audio files are converted to a consistent format (mono, 16 kHz) with loudness normalization using `ffmpeg`, and are split into overlapping chunks to enhance transcription accuracy.
 
-- **Detailed Logging and Progress Reporting:**  
-  Logs are written to file and streamed to the frontend via WebSocket, providing a clear view of the processing stages and performance metrics.
+- **Detailed Logging and Error Reporting:**  
+  Structured JSON logging is implemented throughout the application for improved monitoring and troubleshooting. All error conditions are logged, making it easier to identify and resolve issues.
 
 ## Directory Structure
 
@@ -50,6 +53,7 @@ AITranscription/
     ├── main.py                    # FastAPI backend (file upload, WebSocket, endpoints)
     ├── whisper_process.py         # Core transcription and audio processing module
     ├── worker.py                  # RQ worker for processing transcription jobs
+    ├── logging_config.py          # Centralized logging configuration (JSON format)
     ├── logs/                      # Directory for log files (e.g., api.log)
     ├── uploads/                   # Directory for incoming audio files
     ├── processing/                # Temporary storage for files being processed
@@ -64,9 +68,9 @@ AITranscription/
 ### Prerequisites
 
 - **Python 3.10+**
-- **Redis:** Ensure Redis is installed and running (for local development you can run it as a daemon).
+- **Redis:** Ensure Redis is installed and running (for local development, you can run it as a daemon).
 - **FFmpeg:** Installed and accessible from your system path.
-- **Dependencies:** Install Python dependencies via pip (see `requirements.txt` if provided).
+- **Dependencies:** Install Python dependencies via pip. A `requirements.txt` file should list all required packages.
 
 ### Local Development
 
@@ -80,7 +84,7 @@ AITranscription/
    ```
 
 3. **Launch the Backend API:**  
-   From the project root, start the FastAPI server (for example, with uvicorn):
+   From the project root, start the FastAPI server (e.g., with uvicorn):
    ```bash
    uvicorn main:app
    ```
@@ -92,7 +96,10 @@ AITranscription/
    ```
 
 5. **Access the Web Interface:**  
-   Open your browser and navigate to the location where you serve `index.html` (for local testing, you might use a simple HTTP server, e.g., `python -m http.server 8080`).
+   Open your browser and navigate to the location where you serve `index.html`. For local testing, you might use a simple HTTP server, for example:
+   ```bash
+   python -m http.server 8080
+   ```
 
 6. **Upload and Monitor:**  
    Use the web interface to upload audio files, specifying language and prompt if desired. Monitor real-time progress and download completed transcriptions.
@@ -103,13 +110,30 @@ AITranscription/
   For production, consider containerizing the application using Docker and orchestrating services with Docker Compose.
 
 - **Scaling:**  
-  In production, you may choose to run multiple worker processes or even split services (API, worker, static file server) into separate containers.
+  In production, you may choose to run multiple worker processes or split services (API, worker, static file server) into separate containers.
 
 - **Security:**  
-  Implement proper access control (e.g., authentication, HTTPS) for both the API and the web interface.
+  Although the current MVP is designed for single-user access, implement proper access control (e.g., basic authentication or IP whitelisting) and secure communication (HTTPS) before wider deployment.
 
-- **File Naming:**  
-  Transcripts are stored with a unique name that includes the job ID. You can customize the download endpoint to present a clean file name to the user if desired.
+- **Centralized Logging and Monitoring:**  
+  The application’s JSON-formatted logs are designed for integration with modern monitoring and alerting systems, providing clear visibility into operations and errors.
+
+- **Error Handling:**  
+  Comprehensive error logging is in place. For production, consider adding more robust input validations and user-friendly error responses.
+
+## Known Limitations and Future Enhancements
+
+- **Input Validation:**  
+  More robust validation of file types and sizes is recommended before deploying to a public environment.
+  
+- **Automated Testing:**  
+  While the current implementation serves as an MVP, adding unit and integration tests will be essential for ensuring long-term stability.
+  
+- **Caching and Performance Optimization:**  
+  Future versions may incorporate caching mechanisms and further optimizations to reduce processing overhead and improve performance.
+  
+- **Enhanced Security:**  
+  As the application scales, consider integrating more advanced authentication, authorization, and secrets management solutions.
 
 ## Troubleshooting
 
@@ -117,10 +141,10 @@ AITranscription/
   Check logs in `logs/api.log` for any errors related to Redis Pub/Sub or WebSocket connections.
 
 - **Audio Processing Errors:**  
-  Inspect log messages for details on any `ffmpeg` or transcription errors.
+  Review log messages for details on any `ffmpeg` or transcription errors.
 
 - **Redis Connection Issues:**  
-  Verify that Redis is running and accessible based on the settings in `config.yaml`.
+  Ensure Redis is running and accessible based on the settings in `config.yaml`.
 
 ## License
 

@@ -1,3 +1,8 @@
+"""
+worker.py - This module starts an RQ worker for handling transcription jobs.
+It loads configuration and sensitive credentials from config.yaml and uses the centralized logging configuration.
+"""
+
 from logging_config import *
 import logging
 logger = logging.getLogger(__name__)
@@ -14,7 +19,7 @@ with open("config.yaml", "r") as f:
 BASE_DIR = os.path.expanduser(config.get("directories", {}).get("base", ""))
 LOGS_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("logs", "logs"))
 
-# Redis configuration
+# Redis configuration (stored in config.yaml)
 redis_config = config.get("redis", {})
 redis_conn = Redis(
     host=redis_config.get("host", "localhost"),
