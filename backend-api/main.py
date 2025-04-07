@@ -207,7 +207,7 @@ async def upload_file(
     except Exception as e:
         logger.error(f"Error enqueuing transcription job: {e}")
         raise HTTPException(status_code=500, detail="Error enqueuing transcription job") from e
-    return {"jobId": job_id, "message": "File uploaded and transcription job enqueued"}
+    return {"jobId": job_id, "fileId": file_id, "message": "File uploaded and transcription job enqueued"}
 
 @app.get("/transcriptions")
 async def list_transcriptions():

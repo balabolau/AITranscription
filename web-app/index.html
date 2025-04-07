@@ -150,12 +150,28 @@
     </div>
 
     <!-- Progress Bar Card -->
-      <div class="card progress-container">
-        <h2>Progress</h2>
-        <progress id="progressBar" value="0" max="100"></progress>
-        <div id="progressText"></div>
-        <div id="timerDisplay" style="margin-top:10px"></div>
-      </div>
+    <div class="card progress-container">
+      <h2>Progress</h2>
+      <progress id="progressBar" value="0" max="100"></progress>
+      <div id="progressText"></div>
+      <div id="timerDisplay" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Queue Card -->
+    <div class="card">
+      <h2>Queue</h2>
+      <table id="queueTable" style="width:100%; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Order</th>
+            <th style="text-align:left;">File Name</th>
+            <th style="text-align:left;">Job ID</th>
+            <th style="text-align:left;">Status</th>
+          </tr>
+        </thead>
+        <tbody id="queueBody"></tbody>
+      </table>
+    </div>
     
     <!-- Available Transcriptions Card -->
     <div class="card">
@@ -214,6 +230,24 @@
         const elapsedSeconds = Math.floor((now - transcriptionStartTime) / 1000);
         document.getElementById("timerDisplay").textContent = `Elapsed time: ${elapsedSeconds} s`;
       }
+    }
+
+    let transcriptionQueue = [];
+
+    // Function to update the queue UI
+    function updateQueueUI() {
+      const tbody = document.getElementById('queueBody');
+      tbody.innerHTML = '';
+      transcriptionQueue.forEach((entry, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${index + 1}</td>
+          <td>${entry.fileName}</td>
+          <td>${entry.jobId}</td>
+          <td>${entry.status}</td>
+        `;
+        tbody.appendChild(row);
+      });
     }
     
     // Function to add a log entry with timestamp
@@ -294,13 +328,29 @@
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'update') {
+            // Reset progress bar and start timer when a new transcription starts.
             if (data.message.toLowerCase().includes("transcription started")) {
               updateProgressBar(0);
               startTimer();
+              // Extract file ID from message "Transcription started for <fileId>_<filename>"
+              const parts = data.message.split("for ");
+              if (parts.length > 1) {
+                const filePart = parts[1].trim();
+                const fileIdFromUpdate = filePart.split("_")[0];
+                // Update queue entry status for matching fileId
+                transcriptionQueue = transcriptionQueue.map(entry => 
+                  entry.fileId === fileIdFromUpdate ? { ...entry, status: "transcribing" } : entry
+                );
+                updateQueueUI();
+              }
             }
+            // When transcription finishes, stop timer and remove the first (active) entry.
             if (data.message.toLowerCase().includes("transcription finished")) {
               stopTimer();
+              transcriptionQueue.shift();
+              updateQueueUI();
             }
+            // (Existing code for progress bar updates and addLogEntry follows.)
             const regex = /Chunk\s+(\d+)\/(\d+)/;
             const match = regex.exec(data.message);
             if (match) {
@@ -366,6 +416,14 @@
       .then(data => {
         addLogEntry(`File uploaded successfully. Job ID: ${data.jobId}`);
         addLogEntry('Waiting for transcription to begin');
+        // Add new queue entry on file upload
+        transcriptionQueue.push({
+          fileName: file.name,
+          jobId: data.jobId,
+          fileId: data.fileId,
+          status: "queued"
+        });
+        updateQueueUI();
       })
       .catch(error => {
         console.error('Upload error:', error);
