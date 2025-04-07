@@ -63,12 +63,8 @@ def default_progress_callback(message: str):
     try:
         import redis
         r = redis.Redis(host="localhost", port=6379, db=0)
-        payload = json.dumps({
-            "type": "update",
-            "timestamp": datetime.now().isoformat(),
-            "message": message
-        })
-        r.publish("job_updates", payload)
+        # Publish the plain message; the broadcast_message function will handle JSON encoding.
+        r.publish("job_updates", message)
     except Exception as e:
         logger.error("Failed to publish progress: " + str(e))
 

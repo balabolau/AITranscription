@@ -265,14 +265,12 @@
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'history') {
-            data.messages.reverse().forEach(msg => addLogEntry(msg.message, msg.timestamp));
-          } else if (data.type === 'update') {
-            // Reset progress bar if the message indicates a new transcription is starting.
-            if (data.message && data.message.toLowerCase().includes("transcription started")) {
+          if (data.type === 'update') {
+            // Reset progress bar if a new transcription is starting.
+            if (data.message.toLowerCase().includes("transcription started")) {
               updateProgressBar(0);
             }
-            // Check for chunk progress messages, e.g., "Chunk 1/2 transcribed in ..." and update the bar.
+            // Update progress bar if the message contains chunk progress info.
             const regex = /Chunk\s+(\d+)\/(\d+)/;
             const match = regex.exec(data.message);
             if (match) {
@@ -281,7 +279,10 @@
               const percent = (current / total) * 100;
               updateProgressBar(percent);
             }
+            // Display only the inner message.
             addLogEntry(data.message, data.timestamp);
+          } else if (data.type === 'history') {
+            data.messages.reverse().forEach(msg => addLogEntry(msg.message, msg.timestamp));
           } else {
             addLogEntry(data.message || event.data);
           }
