@@ -1,28 +1,18 @@
-# worker.py
-import os
+from logging_config import *
 import logging
+logger = logging.getLogger(__name__)
+
+import os
 import yaml
 from redis import Redis
 from rq import Worker, Queue
 
-# Load centralized configuration
+# Load centralized configuration from config.yaml
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 BASE_DIR = os.path.expanduser(config.get("directories", {}).get("base", ""))
 LOGS_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("logs", "logs"))
-
-# Configure logging using centralized settings
-log_config = config.get("logging", {})
-logging.basicConfig(
-    level=getattr(logging, log_config.get("level", "INFO").upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(LOGS_DIR, log_config.get("file", "api.log"))),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 # Redis configuration
 redis_config = config.get("redis", {})

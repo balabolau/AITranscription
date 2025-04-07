@@ -1,8 +1,10 @@
-# whisper_process.py
+from logging_config import *
+import logging
+logger = logging.getLogger(__name__)
+
 import os
 import time
 import math
-import logging
 import atexit
 import psutil
 from pathlib import Path
@@ -19,7 +21,7 @@ import concurrent.futures
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Load centralized configuration
+# Load centralized configuration from config.yaml
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
@@ -27,19 +29,6 @@ BASE_DIR = os.path.expanduser(config.get("directories", {}).get("base", ""))
 LOGS_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("logs", "logs"))
 PROCESSING_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("processing", "processing"))
 FFMPEG_TIMEOUT = config.get("ffmpeg", {}).get("timeout", 300)
-
-# Configure logging using centralized settings
-log_config = config.get("logging", {})
-logging.basicConfig(
-    level=getattr(logging, log_config.get("level", "INFO").upper()),
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(LOGS_DIR, log_config.get("file", "api.log"))),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-logger.info(f"Processing log will be saved to: {os.path.join(LOGS_DIR, log_config.get('file', 'api.log'))}")
 
 # Configuration parameters
 MODEL_SIZE = config.get("model", {}).get("size", "turbo")
@@ -63,18 +52,11 @@ def default_progress_callback(message: str):
     try:
         import redis
         r = redis.Redis(host="localhost", port=6379, db=0)
-        # Publish the plain message; the broadcast_message function will handle JSON encoding.
         r.publish("job_updates", message)
     except Exception as e:
         logger.error("Failed to publish progress: " + str(e))
 
 def preprocess_audio(input_path):
-    """
-    Preprocess an audio file using ffmpeg to normalize, resample, and adjust loudness.
-    
-    :param input_path: Path to the original audio file.
-    :return: Path to the preprocessed audio file, or None if an error occurs.
-    """
     preprocessed_path = os.path.join(PROCESSING_DIR, Path(input_path).stem + "_preprocessed.wav")
     logger.info(f"Preprocessed audio will be saved to: {preprocessed_path}")
     command = [
@@ -106,9 +88,6 @@ def preprocess_audio(input_path):
     return preprocessed_path
 
 class WhisperTranscriber:
-    """
-    A class to load and use the Whisper model for transcription.
-    """
     def __init__(self):
         logger.info("Initializing WhisperTranscriber...")
         try:
@@ -175,14 +154,6 @@ class WhisperTranscriber:
             logger.error(f"Error during final cleanup: {e}")
 
     def transcribe_file(self, input_path, prompt_override=None, language_override=None):
-        """
-        Transcribe the given audio file.
-        
-        :param input_path: Path to the audio file.
-        :param prompt_override: Optional prompt to override default.
-        :param language_override: Optional language to override default.
-        :return: Transcribed text, or None if transcription fails.
-        """
         logger.info(f"Starting transcription for {input_path}")
         try:
             self.check_memory_usage()
@@ -191,13 +162,8 @@ class WhisperTranscriber:
         start_time = time.time()
         fp16_setting = False if DEVICE in ["mps", "cpu"] else True
         effective_prompt = prompt_override if prompt_override != "" else ""
-        if language_override.lower() != "auto":
-            effective_language = language_override
-        else:
-            effective_language = ""
-
+        effective_language = language_override if language_override.lower() != "auto" else ""
         logger.info(f"Transcribing with prompt: {effective_prompt}, language: {effective_language}")
-
         transcribe_kwargs = {
             "audio": input_path,
             "task": "transcribe",
@@ -243,17 +209,6 @@ def transcribe_chunk(args):
     return (idx, text)
 
 def transcribe_file_in_chunks(input_path, prompt_override=None, language_override=None, chunk_duration=CHUNK_DURATION, overlap=OVERLAP_DURATION, progress_callback=None):
-    """
-    Transcribe an audio file by splitting it into chunks and transcribing each chunk.
-    
-    :param input_path: Path to the audio file.
-    :param prompt_override: Optional prompt override.
-    :param language_override: Optional language override.
-    :param chunk_duration: Duration of each chunk in seconds.
-    :param overlap: Overlap between chunks in seconds.
-    :param progress_callback: Optional callback for progress updates.
-    :return: Concatenated transcription text, or None if an error occurs.
-    """
     try:
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(AudioSegment.from_file, input_path)
@@ -268,14 +223,10 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
     audio_length = len(audio)
     step = int((chunk_duration - overlap) * 1000)
     total_chunks = 1 if audio_length <= int(chunk_duration * 1000) else math.ceil((audio_length - (chunk_duration * 1000)) / step) + 1
-
     logger.info(f"Starting chunk processing for {input_path} - {total_chunks} chunks expected.")
     if progress_callback:
-        # progress_callback(f"Starting chunk processing for {os.path.basename(input_path)} - {total_chunks} chunks expected.")
         progress_callback(f"Starting chunk processing - {total_chunks} chunks expected")
-
     overall_chunk_start = time.time()
-
     if NUM_WORKERS <= 1:
         transcriptions = []
         i = 0
@@ -329,7 +280,6 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
                 continue
             chunk_files.append((i, chunk_filename, prompt_override, language_override))
             i += 1
-
         results = [None] * len(chunk_files)
         from multiprocessing import Pool
         try:
@@ -348,16 +298,6 @@ def transcribe_file_in_chunks(input_path, prompt_override=None, language_overrid
         return "\n".join(results)
 
 def process_audio_file(input_path, output_dir, prompt_override=None, language_override=None, progress_callback=default_progress_callback):
-    """
-    Process an audio file: preprocess it, transcribe by chunks, and save the transcript.
-    
-    :param input_path: Path to the input audio file.
-    :param output_dir: Directory to save the transcript.
-    :param prompt_override: Optional prompt override.
-    :param language_override: Optional language override.
-    :param progress_callback: Optional callback for progress updates.
-    :return: True if processing and saving succeeded, False otherwise.
-    """
     overall_start = time.time()
     logger.info(f"Processing audio file: {input_path}")
     if progress_callback:
@@ -371,7 +311,6 @@ def process_audio_file(input_path, output_dir, prompt_override=None, language_ov
     logger.info("Audio preprocessed successfully: " + preprocessed)
     if progress_callback:
         progress_callback("Audio preprocessed successfully")
-    
     text = transcribe_file_in_chunks(preprocessed, prompt_override=prompt_override, language_override=language_override,
                                      chunk_duration=CHUNK_DURATION, overlap=OVERLAP_DURATION, progress_callback=progress_callback)
     overall_time = time.time() - overall_start

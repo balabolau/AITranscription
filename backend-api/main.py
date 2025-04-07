@@ -1,4 +1,7 @@
-# main.py
+from logging_config import *
+import logging
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -8,7 +11,6 @@ import uuid
 import os
 import time
 import asyncio
-import logging
 import json
 import yaml
 from datetime import datetime
@@ -16,7 +18,7 @@ from redis import Redis
 from jobs import enqueue_transcription
 from contextlib import asynccontextmanager
 
-# Load centralized configuration
+# Load centralized configuration from config.yaml
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
@@ -24,18 +26,6 @@ BASE_DIR = os.path.expanduser(config.get("directories", {}).get("base", ""))
 UPLOAD_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("uploads", "uploads"))
 OUTPUT_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("outputs", "outputs"))
 LOGS_DIR = os.path.join(BASE_DIR, config.get("directories", {}).get("logs", "logs"))
-
-# Configure logging using centralized settings
-log_config = config.get("logging", {})
-logging.basicConfig(
-    level=getattr(logging, log_config.get("level", "INFO").upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(LOGS_DIR, log_config.get("file", "api.log"))),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,6 +35,7 @@ async def lifespan(app: FastAPI):
         logger.info("Starting Redis Pub/Sub listener for job updates")
         try:
             import redis.asyncio as redis_async
+            redis_config = config.get("redis", {})
             redis_sub = redis_async.Redis(
                 host=redis_config.get("host", "localhost"),
                 port=redis_config.get("port", 6379),
@@ -70,14 +61,11 @@ async def lifespan(app: FastAPI):
                     except Exception as e:
                         logger.error(f"Error in pubsub listener: {e}")
                         await asyncio.sleep(1.0)
-            # Schedule the pubsub listener as a background task
             asyncio.create_task(pubsub_listener())
         except Exception as e:
             logger.error(f"Failed to start pubsub listener: {e}")
 
-    # Call the pubsub listener function so it actually starts
     await start_pubsub_listener()
-    
     yield
     logger.info("API server shutting down")
 
@@ -120,7 +108,6 @@ def get_recent_messages(count: int = 2):
         return []
 
 class MyWebSocket(StarletteWebSocket):
-    # Override the origin check to always allow
     def _origin_allowed(self) -> bool:
         return True
 
@@ -133,24 +120,10 @@ async def websocket_endpoint(websocket: MyWebSocket):
         logger.info(f"[WS {client_id}] WebSocket connection accepted")
         connected_clients.add(websocket)
         logger.info(f"[WS {client_id}] Added to connected clients (Total: {len(connected_clients)})")
-
-        # try:
-        #     recent_messages = get_recent_messages()
-        #     if recent_messages:
-        #         payload = json.dumps({
-        #             "type": "history",
-        #             "messages": recent_messages
-        #         })
-        #         await websocket.send_text(payload)
-        #         logger.info(f"[WS {client_id}] Sent history: {payload}")
-        # except Exception as e:
-        #     logger.exception(f"[WS {client_id}] Error sending history: {e}")
-
         while True:
             try:
                 message = await websocket.receive_text()
                 logger.info(f"[WS {client_id}] Received message: {message}")
-                # Optionally, process the message.
             except Exception as e:
                 logger.exception(f"[WS {client_id}] Exception in receive loop: {e}")
                 break
@@ -224,22 +197,16 @@ async def list_transcriptions():
                     original_filename = filename
                 
                 file_path = os.path.join(OUTPUT_DIR, filename)
-                # Use file's modification time as the "transcribed on" time
-                mtime = os.path.getmtime(file_path)  # returns a float (epoch time)
-
+                mtime = os.path.getmtime(file_path)
                 transcripts.append({
                     "job_id": job_id,
                     "original_filename": original_filename,
                     "download_url": f"http://localhost:8000/download/{job_id}",
                     "transcribed_on": mtime
                 })
-
-        # Sort transcripts in descending order (newest first)
         transcripts.sort(key=lambda x: x["transcribed_on"], reverse=True)
-
     except Exception as e:
         logger.error(f"Error listing transcriptions: {e}")
-
     return transcripts
 
 @app.get("/download/{job_id}")
@@ -249,10 +216,8 @@ async def download_transcript(job_id: str):
             if filename.startswith(job_id + "_") and filename.endswith(".txt"):
                 file_path = os.path.join(OUTPUT_DIR, filename)
                 logger.info(f"Found transcript for job {job_id}: {file_path}")
-                # Strip the job ID and underscore from the filename:
                 original_filename = filename.split("_", 1)[1] if "_" in filename else filename
                 return FileResponse(file_path, media_type="text/plain", filename=original_filename)
-
         logger.error(f"Transcript for job {job_id} not found")
         raise HTTPException(status_code=404, detail="Transcript not found")
     except Exception as e:
