@@ -150,17 +150,12 @@
     </div>
 
     <!-- Progress Bar Card -->
-    <div class="card progress-container">
-      <h2>Progress</h2>
-      <progress id="progressBar" value="0" max="100"></progress>
-      <!-- <div id="progressText"></div> -->
-    </div>
-    
-    <!-- Transcription Log Card -->
-    <div class="card">
-      <h2>Transcription Log</h2>
-      <div class="log-container" id="logContainer"></div>
-    </div>
+      <div class="card progress-container">
+        <h2>Progress</h2>
+        <progress id="progressBar" value="0" max="100"></progress>
+        <div id="progressText"></div>
+        <div id="timerDisplay" style="margin-top:10px"></div>
+      </div>
     
     <!-- Available Transcriptions Card -->
     <div class="card">
@@ -177,6 +172,12 @@
         <tbody id="transcriptionsBody"></tbody>
       </table>
     </div>
+
+    <!-- Transcription Log Card -->
+    <div class="card">
+      <h2>Transcription Log</h2>
+      <div class="log-container" id="logContainer"></div>
+    </div>
   </div>
   
   <script>
@@ -185,7 +186,34 @@
       const progressBar = document.getElementById('progressBar');
       progressBar.value = percentage;
       const progressText = document.getElementById('progressText');
-      progressText.textContent = `${percentage.toFixed(2)}% complete`;
+      progressText.textContent = `Progress: ${percentage.toFixed(2)}%`;
+    }
+
+    let transcriptionTimer = null;
+    let transcriptionStartTime = null;
+
+    // Function to start the timer
+    function startTimer() {
+      transcriptionStartTime = new Date();
+      if (transcriptionTimer) clearInterval(transcriptionTimer);
+      transcriptionTimer = setInterval(updateTimerDisplay, 1000);
+    }
+
+    // Function to stop the timer
+    function stopTimer() {
+      if (transcriptionTimer) {
+        clearInterval(transcriptionTimer);
+        transcriptionTimer = null;
+      }
+    }
+
+    // Function to update the timer display
+    function updateTimerDisplay() {
+      if (transcriptionStartTime) {
+        const now = new Date();
+        const elapsedSeconds = Math.floor((now - transcriptionStartTime) / 1000);
+        document.getElementById("timerDisplay").textContent = `Elapsed time: ${elapsedSeconds} s`;
+      }
     }
     
     // Function to add a log entry with timestamp
@@ -266,11 +294,13 @@
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'update') {
-            // Reset progress bar if a new transcription is starting.
             if (data.message.toLowerCase().includes("transcription started")) {
               updateProgressBar(0);
+              startTimer();
             }
-            // Update progress bar if the message contains chunk progress info.
+            if (data.message.toLowerCase().includes("transcription finished")) {
+              stopTimer();
+            }
             const regex = /Chunk\s+(\d+)\/(\d+)/;
             const match = regex.exec(data.message);
             if (match) {
@@ -279,7 +309,6 @@
               const percent = (current / total) * 100;
               updateProgressBar(percent);
             }
-            // Display only the inner message.
             addLogEntry(data.message, data.timestamp);
           } else if (data.type === 'history') {
             data.messages.reverse().forEach(msg => addLogEntry(msg.message, msg.timestamp));
