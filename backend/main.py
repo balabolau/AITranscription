@@ -216,8 +216,8 @@ async def list_transcriptions():
                 transcripts.append({
                     "job_id": job_id,
                     "original_filename": original_filename,
-                    "download_url": f"http://localhost:8000/download/{job_id}",
-                    "transcribed_on": mtime
+                    "transcribed_on": mtime,
+                    "download_url": f"http://localhost:8000/download/{job_id}"
                 })
         transcripts.sort(key=lambda x: x["transcribed_on"], reverse=True)
     except Exception as e:
