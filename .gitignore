@@ -63,3 +63,4 @@ uploads/
 outputs/
 processing/
 logs/
+*.pid
