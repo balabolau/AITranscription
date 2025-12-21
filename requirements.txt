@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+redis
+rq
+PyYAML
+python-json-logger
+python-multipart
+requests
+pandas
+streamlit
+websockets
+psutil
+torch
+openai-whisper
+pydub
