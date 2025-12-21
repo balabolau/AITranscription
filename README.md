@@ -77,31 +77,38 @@ AITranscription/
 1. **Configure the Application:**  
    Edit `config.yaml` to adjust transcription parameters, directory paths, and resource thresholds as needed.
 
-2. **Start Redis:**  
-   Run Redis in daemon mode:
+2. **Choose a Run Mode:**  
+   You can run everything via the helper scripts (tmux-based) or start each process manually.
+
+   **Option A: Use `run.sh` (recommended for local dev)**  
+   This starts the backend, worker, and frontend in a tmux session named `aitranscribe`. It also starts Redis if it is not already running.
    ```bash
-   redis-server --daemonize yes
+   ./run.sh
+   ```
+   To stop everything that `run.sh` started (including the tmux session and the Redis instance it spawned), run:
+   ```bash
+   ./kill.sh
    ```
 
-3. **Launch the Backend API:**  
-   From the project root, start the FastAPI server (e.g., with uvicorn):
+   **Option B: Run each process manually**  
+   Start Redis in daemon mode:
    ```bash
-   uvicorn main:app
+   cd backend && redis-server --daemonize yes
    ```
-
-4. **Start the Worker:**  
-   In a separate terminal, run:
+   From the project root, start the FastAPI server:
    ```bash
-   python worker.py
+   cd backend && uvicorn main:app --reload
    ```
-
-5. **Access the Web Interface:**  
+   In a separate terminal, run the worker:
+   ```bash
+   cd backend && python worker.py
+   ```
    Start the Streamlit UI:
    ```bash
-   streamlit run web-app/Homepage.py
+   cd web-app && streamlit run Homepage.py
    ```
 
-6. **Upload and Monitor:**  
+3. **Upload and Monitor:**  
    Use the web interface to upload audio files, specifying language and prompt if desired. Monitor real-time progress and download completed transcriptions.
 
 ## Considerations for Production
