@@ -6,8 +6,8 @@ This application is a configurable, web-based speech-to-text transcription syste
 
 The application consists of several components working together:
 
-- **Web Frontend (index.html):**  
-  A minimal interface for uploading audio files. In addition to selecting an audio file, users can specify a transcription language (defaulting to auto-detect) and an optional prompt. The frontend displays live progress updates and lists completed transcriptions available for download.
+- **Web Frontend (Streamlit UI):**  
+  A Streamlit interface for uploading audio files. In addition to selecting an audio file, users can specify a transcription language (defaulting to auto-detect) and an optional prompt. The UI displays live progress updates and lists completed transcriptions available for download.
 
 - **Backend API (main.py):**  
   Built with FastAPI, it handles file uploads, manages WebSocket connections for real-time progress updates, and provides endpoints to list and download transcriptions. Uploaded files are saved locally and passed as jobs to the transcription queue.
@@ -60,7 +60,7 @@ AITranscription/
     └── outputs/                   # Output directory for generated transcript files
     
 └── web-app/
-    └── index.html                 # Web frontend for file upload and monitoring
+    └── Homepage.py                # Streamlit UI for file upload and monitoring
 ```
 
 ## Getting Started
@@ -96,9 +96,9 @@ AITranscription/
    ```
 
 5. **Access the Web Interface:**  
-   Open your browser and navigate to the location where you serve `index.html`. For local testing, you might use a simple HTTP server, for example:
+   Start the Streamlit UI:
    ```bash
-   python -m http.server 8080
+   streamlit run web-app/Homepage.py
    ```
 
 6. **Upload and Monitor:**  
