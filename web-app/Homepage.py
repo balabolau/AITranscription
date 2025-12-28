@@ -11,7 +11,6 @@ import streamlit as st
 import websockets
 
 
-# --- Path setup (keep if you rely on sibling modules elsewhere) ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -20,21 +19,18 @@ st.set_page_config(layout="wide")
 st.title("AI Transcriber")
 
 
-# =========================
-# Session state + helpers
-# =========================
 def _init_state() -> None:
     if "transcribing" not in st.session_state:
         st.session_state.transcribing = False
 
-    # Queue holds items in upload order.
+    # Queue with items in upload order
     # Each item: {"order": int, "file_name": str, "job_id": str, "file_id": str, "status": str}
     if "queue" not in st.session_state:
         st.session_state.queue = []
     if "queue_counter" not in st.session_state:
         st.session_state.queue_counter = 0
 
-    # Simple log buffer (strings)
+    # Log buffer
     if "logs" not in st.session_state:
         st.session_state.logs = []
 
@@ -82,28 +78,39 @@ def _append_log(msg: str) -> None:
 
 
 def _extract_file_id_from_started(msg: str) -> Optional[str]:
-    """
-    Tries to parse "Transcription started for <fileId>_<filename>"
-    """
+    # Try to parse "Transcription started for <fileId>_<filename>"
     m = re.search(r"started\s+for\s+([^_\s]+)_", msg, flags=re.IGNORECASE)
     return m.group(1) if m else None
 
 
 def _render_queue(container):
-    container.empty()  # IMPORTANT: clears previous element in this placeholder
+    # Clear previous element in this placeholder
+    container.empty()
 
     if not st.session_state.queue:
         container.info("Queue is empty.")
         return
 
     df = pd.DataFrame(st.session_state.queue)
-    for col in ["order", "file_name", "job_id", "status"]:
-        if col not in df.columns:
-            df[col] = ""
+    # for col in ["order", "file_name", "job_id", "status"]:
+    #     if col not in df.columns:
+    #         df[col] = ""
 
-    df = df[["order", "file_name", "job_id", "status"]].sort_values("order")
+    labels = {
+        "order": "Order", 
+        "file_name": "File Name", 
+        "job_id": "Job ID", 
+        "status": "status"
+    }
+    cols = [c for c in list(labels.keys()) if c in df.columns]
+    if not cols:
+        container.warning("Unexpected response format from queue.")
+        container.write(df)
+        return
 
-    container.dataframe(df, hide_index=True, use_container_width=True)
+    df = df[cols].sort_values("order")
+
+    container.dataframe(df.rename(columns=labels), hide_index=True, use_container_width=True)
 
 
 def _render_logs(container, last_n: int = 200):
@@ -121,9 +128,7 @@ def _render_logs(container, last_n: int = 200):
 _init_state()
 
 
-# =========================
 # Upload UI
-# =========================
 st.subheader("Upload Audio File")
 
 with st.form(key="upload_form"):
@@ -133,14 +138,14 @@ with st.form(key="upload_form"):
     )
     language = st.selectbox(
         "Language",
-        options=["auto", "en", "fr"],
+        options=["auto", "english", "french"],
         index=0,
         help="Use 'auto' if you want the backend to detect language.",
     )
     prompt = st.text_area(
         "Prompt (optional)",
         value="",
-        placeholder="Optional context for the transcription model (names, jargon, topic, etc.)",
+        placeholder="Optional context for the transcription model (topic, names, etc.)",
     )
     submitted = st.form_submit_button("Upload")
 
@@ -179,9 +184,7 @@ if submitted:
                 st.error(e)
 
 
-# =========================
 # Progress + Queue + Logs
-# =========================
 st.divider()
 st.subheader("Progress")
 
@@ -190,7 +193,6 @@ progress_value = st.metric(label="Progress", value="0%")
 
 
 def update_progress(percent: float) -> None:
-    # percent is between 0 and 1
     percent = max(0.0, min(1.0, float(percent)))
     progress_bar.progress(value=percent)
     progress_value.metric(label="Progress", value=f"{percent*100:.1f}%")
@@ -208,9 +210,7 @@ st.divider()
 st.subheader("Logs")
 
 
-# =========================
 # WebSocket listener
-# =========================
 async def connect_to_websocket(queue_ph, logs_ph):
     async with websockets.connect("ws://localhost:8000/ws") as websocket:
         while st.session_state.transcribing is True:
@@ -227,7 +227,6 @@ async def connect_to_websocket(queue_ph, logs_ph):
                     file_id = _extract_file_id_from_started(msg)
                     if file_id:
                         if not _set_status_by_file_id(file_id, "transcribing"):
-                            # If we can't find it, just mark the next queued item
                             _mark_first_queued_transcribing()
                     else:
                         _mark_first_queued_transcribing()
@@ -235,7 +234,6 @@ async def connect_to_websocket(queue_ph, logs_ph):
                     _render_queue(queue_ph)
 
                 elif re.search(r"Chunk\s\d+\/\d+", msg):
-                    # Look for a percentage like "12.34%"
                     match = re.search(r"([\d+.]+)%", msg)
                     if match:
                         pct = float(match.group(1)) / 100.0
@@ -245,7 +243,7 @@ async def connect_to_websocket(queue_ph, logs_ph):
                     _pop_first_transcribing_or_first()
                     _render_queue(queue_ph)
 
-                    # Stop listening only when the queue is truly empty
+                    # Stop listening only when the queue is empty
                     if not st.session_state.queue:
                         st.session_state.transcribing = False
 
@@ -279,9 +277,7 @@ else:
     st.info("No active transcription.")
 
 
-# =========================
 # Available transcriptions
-# =========================
 st.divider()
 st.subheader("Available Transcriptions")
 
@@ -304,12 +300,8 @@ def transcription_list():
             if "transcribed_on" in data.columns:
                 data["transcribed_on"] = pd.to_datetime(data["transcribed_on"], unit="s")
 
-            # Expecting: original_filename, transcribed_on, download_url
-            cols = [
-                c
-                for c in ["original_filename", "transcribed_on", "download_url"]
-                if c in data.columns
-            ]
+            # Expected: original_filename, transcribed_on, download_url
+            cols = [c for c in ["original_filename", "transcribed_on", "download_url"] if c in data.columns]
             if not cols:
                 container.warning("Unexpected response format from /transcriptions.")
                 container.write(data)
